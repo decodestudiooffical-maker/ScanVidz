@@ -1,0 +1,16 @@
+# --- Backend ka kachra ---
+backend/venv/
+backend/downloads/
+backend/__pycache__/
+*.pyc
+
+# --- Frontend ka kachra ---
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+.env
+
+# --- System Files ---
+.DS_Store
+Thumbs.db
