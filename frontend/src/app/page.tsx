@@ -33,7 +33,7 @@ export default function Home() {
 
   // --- 2. FETCH TRENDING VIDEOS (Real Data) ---
   useEffect(() => {
-    fetch('http://127.0.0.1:8000/trending')
+    fetch('https://scanvidz-default.onrender.com/trending')
       .then(res => res.json())
       .then(data => setTrending(data.videos || data.results || []))
       .catch(err => console.log(err));
@@ -43,7 +43,7 @@ export default function Home() {
   useEffect(() => {
     const timer = setTimeout(() => {
         if (searchQuery.length > 1 && showSuggestions) {
-            fetch(`http://127.0.0.1:8000/suggestions?q=${encodeURIComponent(searchQuery)}`)
+            fetch(`https://scanvidz-default.onrender.com/suggestions?q=${encodeURIComponent(searchQuery)}`)
                 .then(res => res.json())
                 .then(data => setSuggestions(data))
                 .catch(err => console.error(err));

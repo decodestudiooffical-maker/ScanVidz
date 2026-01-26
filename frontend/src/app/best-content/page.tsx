@@ -51,7 +51,7 @@ function BestContent() {
         let allVideos: Video[] = [];
 
         const promises = ADMIN_PICKS.map(query => 
-            fetch(`http://127.0.0.1:8000/search?q=${encodeURIComponent(query)}&limit=1`)
+            fetch(`https://scanvidz-default.onrender.com/search?q=${encodeURIComponent(query)}&limit=1`)
             .then(res => res.json())
             .then(data => data.results?.[0] || null)
             .catch(() => null)

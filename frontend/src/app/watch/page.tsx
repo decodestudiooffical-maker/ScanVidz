@@ -100,10 +100,10 @@ function WatchContent() {
         // Parallel Fetching for Speed (Backend API)
         Promise.all([
             // Fetch 1: Strictly Related (15 Videos)
-            fetch(`http://127.0.0.1:8000/search?q=${encodeURIComponent(mainTag)}&limit=15`).then(res => res.json()),
+            fetch(`https://scanvidz-default.onrender.com/search?q=${encodeURIComponent(mainTag)}&limit=15`).then(res => res.json()),
             
             // Fetch 2: Mix/Broad Related (10 Videos)
-            fetch(`http://127.0.0.1:8000/search?q=${encodeURIComponent(broadTag + ' mix')}&limit=10`).then(res => res.json())
+            fetch(`https://scanvidz-default.onrender.com/search?q=${encodeURIComponent(broadTag + ' mix')}&limit=10`).then(res => res.json())
         ])
         .then(([strictData, mixData]) => {
             const strictVideos = strictData.results || strictData.videos || [];
@@ -148,7 +148,7 @@ function WatchContent() {
      if (!videoId) return;
      setLoadingFormats(true);
      try {
-        const res = await fetch(`http://127.0.0.1:8000/formats?v=${videoId}`);
+        const res = await fetch(`https://scanvidz-default.onrender.com/formats?v=${videoId}`);
         const data = await res.json();
         if (data.status === 'success') {
            setFormats(data.formats);
@@ -177,7 +177,7 @@ function WatchContent() {
 
      // Trigger URL
      const isMerge = format.needs_merge ? "true" : "false";
-     const url = `http://127.0.0.1:8000/download?v=${videoId}&format_id=${format.format_id}&merge=${isMerge}`;
+     const url = `https://scanvidz-default.onrender.com/download?v=${videoId}&format_id=${format.format_id}&merge=${isMerge}`;
      window.open(url, '_blank'); 
   };
 
