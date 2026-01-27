@@ -34,10 +34,8 @@ function WatchContent() {
   const [related, setRelated] = useState<any[]>([]);
   const [countdown, setCountdown] = useState(5); // End screen timer
   
-  // 🔥 SOUND & FULLSCREEN STATE (NEW UPDATES)
-  const [isMuted, setIsMuted] = useState(true);
-  const [showUnmuteBtn, setShowUnmuteBtn] = useState(true); // Controls the "Tap for Sound" visibility
-  const [isFullscreenMode, setIsFullscreenMode] = useState(false); // Controls Mobile Rotation Logic
+  // 🔥 FULLSCREEN STATE
+  const [isFullscreenMode, setIsFullscreenMode] = useState(false);
 
   // Download Logic States
   const [showDownload, setShowDownload] = useState(false);
@@ -61,7 +59,7 @@ function WatchContent() {
 
   // Refs
   const playerRef = useRef<any>(null); 
-  const containerRef = useRef<HTMLDivElement>(null); // 🔥 For Fullscreen Element
+  const containerRef = useRef<HTMLDivElement>(null); 
 
   // ---------------------------------------------------------
   // 3. KEYBOARD CONTROLS & LISTENERS
@@ -86,7 +84,7 @@ function WatchContent() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // 🔥 FULLSCREEN LISTENER (Detects when user rotates phone or exits fullscreen)
+  // 🔥 FULLSCREEN LISTENER
   useEffect(() => {
       const handleFsChange = () => {
           if (document.fullscreenElement) {
@@ -243,38 +241,21 @@ function WatchContent() {
       setPlay(false);
       setPlayerState(-1);
       
-      // Reset Sound Logic for New Video
-      setIsMuted(true); 
-      setShowUnmuteBtn(true); 
-      
       router.push(`/watch?v=${encodeURIComponent(video.link)}&title=${encodeURIComponent(video.title)}&views=${encodeURIComponent(video.views)}&duration=${encodeURIComponent(video.duration)}&thumbnail=${encodeURIComponent(video.thumbnail)}&channel=${encodeURIComponent(video.channel_name || '')}&avatar=${encodeURIComponent(video.channel_avatar || '')}`);
       window.scrollTo(0,0);
       setTimeout(() => setPlay(true), 100); 
   };
 
-  // 🔥 9. MANUAL UNMUTE HANDLER (Hides Button Forever)
-  const handleManualUnmute = (e: React.MouseEvent) => {
-      e.stopPropagation(); // Stop click from triggering other things
-      if(playerRef.current) {
-          playerRef.current.internalPlayer.unMute();
-          playerRef.current.internalPlayer.setVolume(100);
-          setIsMuted(false);
-          setShowUnmuteBtn(false); // 🔥 IMPORTANT: Hide button permanently
-      }
-  };
-
-  // 🔥 10. CUSTOM FULLSCREEN FUNCTION (Rotates Mobile Screen)
+  // 🔥 9. CUSTOM FULLSCREEN FUNCTION (Rotates Mobile Screen)
   const toggleFullscreen = () => {
       if (containerRef.current) {
           if (!document.fullscreenElement) {
-              // Try standard and webkit methods
               if (containerRef.current.requestFullscreen) {
                   containerRef.current.requestFullscreen();
               } else if ((containerRef.current as any).webkitRequestFullscreen) {
                   (containerRef.current as any).webkitRequestFullscreen();
               }
           } else {
-              // Exit logic
               if (document.exitFullscreen) {
                   document.exitFullscreen();
               } else if ((document as any).webkitExitFullscreen) {
@@ -284,21 +265,17 @@ function WatchContent() {
       }
   };
 
-  // 🔥 11. PLAYER LOGIC (UPDATED FOR SOUND & ORIENTATION)
+  // 🔥 10. PLAYER LOGIC (NO UI BUTTON, JUST HACKER ATTEMPT)
   const onPlayerReady = (event: any) => {
       playerRef.current = event.target;
       
-      // Auto-play Muted (Guarantees Play on Mobile)
+      // Auto-play Muted (Required for Mobile)
       event.target.mute();
       event.target.playVideo();
       
-      // Attempt Hacker Unmute (Auto-Unmute if browser allows)
+      // Try Auto-Unmute (Invisible Logic)
       setTimeout(() => {
           event.target.unMute(); 
-          if (!event.target.isMuted()) {
-              setIsMuted(false);
-              setShowUnmuteBtn(false); // If success, hide button
-          }
       }, 1000);
   };
 
@@ -307,15 +284,9 @@ function WatchContent() {
       
       if (event.data === 1) { // When Playing
          const player = event.target;
+         // Try one more auto-unmute attempt silently
          player.isMuted().then((muted: boolean) => {
-             setIsMuted(muted);
-             
-             // If NOT muted, hide button immediately
-             if(!muted) {
-                 setShowUnmuteBtn(false); 
-             } 
-             // If muted and button still there, try auto-unmute one last time
-             else if (showUnmuteBtn) {
+             if(muted) {
                  player.unMute();
              }
          });
@@ -323,7 +294,7 @@ function WatchContent() {
   };
 
   // ---------------------------------------------------------
-  // 12. UI RENDER START
+  // 11. UI RENDER START
   // ---------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col font-sans">
@@ -389,18 +360,8 @@ function WatchContent() {
                           }}
                        />
                        
-                       {/* 🔥 UNMUTE OVERLAY: Only shows if showUnmuteBtn is TRUE */}
-                       {showUnmuteBtn && playerState === 1 && (
-                           <div 
-                                onClick={handleManualUnmute}
-                                className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 cursor-pointer backdrop-blur-[1px]"
-                           >
-                               <div className="bg-white/10 border border-white/30 backdrop-blur-md px-6 py-3 rounded-full flex items-center gap-3 animate-pulse hover:bg-white/20 transition transform hover:scale-105">
-                                   <span className="text-3xl">🔊</span>
-                                   <span className="font-black text-white text-lg tracking-widest">TAP FOR SOUND</span>
-                               </div>
-                           </div>
-                       )}
+                       {/* 🔥 REMOVED: UNMUTE OVERLAY BUTTON */}
+                       {/* Now user will simply unmute using system/player controls if auto-unmute fails */}
 
                        {/* 🔥 SMART SHIELDS (Percentage Based - Responsive) */}
                        
