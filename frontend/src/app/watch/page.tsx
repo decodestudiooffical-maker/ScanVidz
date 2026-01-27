@@ -252,35 +252,41 @@ function WatchContent() {
       setTimeout(() => setPlay(true), 100); 
   };
 
-  // 🔥 UPDATED: ROBUST SOUND FIX FUNCTIONS 🔥
+  // 🔥 UPDATED: HYBRID SOUND FIX (DOUBLE CLICK + HACKER WAY) 🔥
   const onPlayerReady = (event: any) => {
       playerRef.current = event.target;
       
-      // Attempt 1: Immediate Unmute
+      // Part 1: Initial Setup - Mute Off, Volume Full
       event.target.unMute();
       event.target.setVolume(100);
       
-      // Attempt 2: Delayed Unmute (for Mobile Lag)
-      setTimeout(() => {
-        if(event.target.isMuted()) {
-            event.target.unMute();
-            event.target.setVolume(100);
-        }
-      }, 1000);
-      
-      event.target.playVideo();
+      // NOTE: We do NOT call playVideo() here. 
+      // This forces the "Double Click" method (User must tap Red Button)
   };
 
   const onPlayerStateChange = (event: any) => {
       setPlayerState(event.data);
+      
       // Code 1 means "Playing"
-      // Check every time video plays if it is muted, if yes -> Force Unmute
+      // Part 2: "The Hacker Way" - Force Unmute Loop once playing starts
       if (event.data === 1) {
          const player = event.target;
-         if (player.isMuted()) {
+         
+         // Immediate Unmute
+         player.unMute();
+         player.setVolume(100);
+
+         // Safety Check 1: After 500ms
+         setTimeout(() => {
              player.unMute();
              player.setVolume(100);
-         }
+         }, 500);
+
+         // Safety Check 2: After 1500ms (Force update)
+         setTimeout(() => {
+            player.unMute();
+            player.setVolume(100);
+        }, 1500);
       }
   };
 
@@ -335,14 +341,14 @@ function WatchContent() {
                               height: '100%',
                               width: '100%',
                               playerVars: {
-                                  autoplay: 1,
-                                  playsinline: 1, // 🔥 Essential for iOS Sound
+                                  autoplay: 0, // 🔥 DOUBLE CLICK METHOD: Video Load Hoga, Play Nahi Hoga.
+                                  playsinline: 1, 
                                   controls: 1,
                                   modestbranding: 1,
                                   rel: 0, 
                                   showinfo: 0,
                                   iv_load_policy: 3, 
-                                  origin: typeof window !== 'undefined' ? window.location.origin : 'https://scanvidz.vercel.app' // 🔥 Critical for Mobile API
+                                  origin: typeof window !== 'undefined' ? window.location.origin : 'https://scanvidz.vercel.app'
                               }
                           }}
                        />
