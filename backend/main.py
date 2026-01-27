@@ -33,7 +33,6 @@ app.add_middleware(
 
 # 👇 YAHAN APNA PASSWORD OR DB NAME DALO 👇
 # Format: postgresql://username:password@localhost/dbname
-# 👇 Is line ko copy karke paste kar do (Line 36 par) 👇
 SQLALCHEMY_DATABASE_URL = "postgresql://neondb_owner:npg_GP6XqUDHMZc5@ep-spring-surf-a1wl9hrh-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
 
 # Engine Create
@@ -76,6 +75,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 FFMPEG_PATH = os.path.join(current_dir, "ffmpeg.exe") # Auto-detect FFmpeg in backend folder
 DOWNLOAD_DIR = os.path.join(current_dir, "downloads")
 
+# --- FIX: Create Downloads Folder Safely ---
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
@@ -310,15 +310,30 @@ def get_formats(v: str):
     return {"status": "success", "formats": unique_formats, "title": info.get('title')}
 
 
-# --- 5. DOWNLOAD ENDPOINT (SPEED HACK + NO NEW TAB LOGIC) ---
+# --- 5. DOWNLOAD ENDPOINT (FIXED: SOUND + DOWNLOAD FOLDER) ---
 @app.get("/download")
 def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, merge: str = "false"):
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     
-    # 1. DIRECT DOWNLOAD (Simple videos)
+    # ----------------------------------------------------
+    # FIX 1: FOLDER SAFETY CHECK (Har baar check karega)
+    # ----------------------------------------------------
+    if not os.path.exists("downloads"):
+        os.makedirs("downloads")
+
+    # 1. DIRECT PLAY/DOWNLOAD (Fix for No Sound)
     if merge != "true":
-        ydl_opts = {'format': format_id, 'quiet': True}
+        # ------------------------------------------------------------------
+        # FIX 2: FORCE 'BEST' FORMAT (AUDIO + VIDEO)
+        # Hum 'format_id' ignore kar rahe hain taaki guaranteed Audio aaye
+        # ------------------------------------------------------------------
+        ydl_opts = {
+            'format': 'best', # HD Quality (720p) with Audio included
+            'quiet': True,
+            'noplaylist': True
+        }
+        
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
