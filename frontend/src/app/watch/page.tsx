@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import YouTube from 'react-youtube'; 
-import UserMenu from '@/components/UserMenu'; // 🔥 Import UserMenu
+import UserMenu from '@/components/UserMenu'; 
 
 // --- COMPONENT START ---
 function WatchContent() {
@@ -34,6 +34,9 @@ function WatchContent() {
   const [related, setRelated] = useState<any[]>([]);
   const [countdown, setCountdown] = useState(5); // End screen timer
   
+  // 🔥 NEW: Sound State
+  const [isMuted, setIsMuted] = useState(true);
+
   // Download Logic States
   const [showDownload, setShowDownload] = useState(false);
   const [formats, setFormats] = useState([]);
@@ -56,6 +59,7 @@ function WatchContent() {
 
   // Refs
   const playerRef = useRef<any>(null); // React-YouTube Player Reference
+  const containerRef = useRef<HTMLDivElement>(null); // 🔥 For Fullscreen Logic
 
   // ---------------------------------------------------------
   // 3. KEYBOARD CONTROLS (Spacebar Logic Fixed)
@@ -243,6 +247,7 @@ function WatchContent() {
       // Reset States
       setPlay(false);
       setPlayerState(-1);
+      setIsMuted(true); // Reset mute for next video
       
       // Navigate
       router.push(`/watch?v=${encodeURIComponent(video.link)}&title=${encodeURIComponent(video.title)}&views=${encodeURIComponent(video.views)}&duration=${encodeURIComponent(video.duration)}&thumbnail=${encodeURIComponent(video.thumbnail)}&channel=${encodeURIComponent(video.channel_name || '')}&avatar=${encodeURIComponent(video.channel_avatar || '')}`);
@@ -252,46 +257,59 @@ function WatchContent() {
       setTimeout(() => setPlay(true), 100); 
   };
 
-  // 🔥 UPDATED: HYBRID SOUND FIX (DOUBLE CLICK + HACKER WAY) 🔥
+  // 🔥 9. UNMUTE HANDLER (Manual Tap)
+  const handleManualUnmute = () => {
+      if(playerRef.current) {
+          playerRef.current.internalPlayer.unMute();
+          playerRef.current.internalPlayer.setVolume(100);
+          setIsMuted(false);
+      }
+  };
+
+  // 🔥 10. NEW: CUSTOM FULLSCREEN FUNCTION (Fits video to screen)
+  const toggleFullscreen = () => {
+      if (containerRef.current) {
+          if (!document.fullscreenElement) {
+              containerRef.current.requestFullscreen().catch(err => {
+                  console.log(`Error attempting to enable fullscreen: ${err.message}`);
+              });
+          } else {
+              document.exitFullscreen();
+          }
+      }
+  };
+
+  // 🔥 11. PLAYER LOGIC (SOUND + ORIENTATION + HACKER ATTEMPT)
   const onPlayerReady = (event: any) => {
       playerRef.current = event.target;
       
-      // Part 1: Initial Setup - Mute Off, Volume Full
-      event.target.unMute();
-      event.target.setVolume(100);
+      // Auto-play Muted (Start immediately)
+      event.target.mute();
+      event.target.playVideo();
       
-      // NOTE: We do NOT call playVideo() here. 
-      // This forces the "Double Click" method (User must tap Red Button)
+      // Attempt Hacker Unmute (Try to unmute automatically after 1s)
+      setTimeout(() => {
+          event.target.unMute(); 
+          if (!event.target.isMuted()) setIsMuted(false);
+      }, 1000);
   };
 
   const onPlayerStateChange = (event: any) => {
       setPlayerState(event.data);
-      
-      // Code 1 means "Playing"
-      // Part 2: "The Hacker Way" - Force Unmute Loop once playing starts
-      if (event.data === 1) {
+      if (event.data === 1) { // When playing
          const player = event.target;
-         
-         // Immediate Unmute
-         player.unMute();
-         player.setVolume(100);
-
-         // Safety Check 1: After 500ms
-         setTimeout(() => {
-             player.unMute();
-             player.setVolume(100);
-         }, 500);
-
-         // Safety Check 2: After 1500ms (Force update)
-         setTimeout(() => {
-            player.unMute();
-            player.setVolume(100);
-        }, 1500);
+         player.isMuted().then((muted: boolean) => {
+             setIsMuted(muted);
+             if(muted) {
+                 // Try one more time to unmute via code
+                 player.unMute();
+             }
+         });
       }
   };
 
   // ---------------------------------------------------------
-  // 9. UI RENDER START
+  // 12. UI RENDER START
   // ---------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col font-sans">
@@ -327,12 +345,16 @@ function WatchContent() {
            <div className="flex-1 p-4 lg:p-6 lg:pr-0 overflow-y-auto">
               
               {/* VIDEO PLAYER CONTAINER */}
-              <div className="w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl relative group border border-gray-800">
+              {/* 🔥 FIX: 'aspect-video' ensures correct ratio on all mobile screens */}
+              {/* 🔥 REF ADDED for Fullscreen API */}
+              <div ref={containerRef} className="w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl relative group border border-gray-800">
                  {play && videoId ? (
                     <div className="w-full h-full relative group">
                        {/* REACT YOUTUBE PLAYER */}
                        <YouTube
                           videoId={videoId}
+                          // 🔥 FIX: Ensure player fills container properly for Landscape
+                          style={{ width: '100%', height: '100%' }}
                           className="w-full h-full"
                           iframeClassName="w-full h-full"
                           onReady={onPlayerReady}
@@ -341,8 +363,9 @@ function WatchContent() {
                               height: '100%',
                               width: '100%',
                               playerVars: {
-                                  autoplay: 0, // 🔥 DOUBLE CLICK METHOD: Video Load Hoga, Play Nahi Hoga.
-                                  playsinline: 1, 
+                                  autoplay: 1, // Start immediately
+                                  mute: 1,     // Start Muted (Required for Mobile Autoplay)
+                                  playsinline: 1, // Keep video inline (don't force fullscreen instantly)
                                   controls: 1,
                                   modestbranding: 1,
                                   rel: 0, 
@@ -353,25 +376,32 @@ function WatchContent() {
                           }}
                        />
                        
-                       {/* 🔥 NUCLEAR SHIELD 1: Bottom Right (Covers Logo) - BLOCKS TOUCH */}
-                       <div 
-                            className="absolute bottom-0 right-0 w-[150px] h-[90px] z-[9999]" 
-                            style={{ 
-                                pointerEvents: 'auto', 
-                                background: 'rgba(255,0,0,0.01)' // Invisible but present hack
-                            }}
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                            onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                       ></div>
+                       {/* 🔥 UNMUTE OVERLAY BUTTON (Only shows if video is muted) */}
+                       {isMuted && playerState === 1 && (
+                           <div 
+                                onClick={handleManualUnmute}
+                                className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 cursor-pointer backdrop-blur-[1px]"
+                           >
+                               <div className="bg-white/10 border border-white/30 backdrop-blur-md px-6 py-3 rounded-full flex items-center gap-3 animate-pulse hover:bg-white/20 transition transform hover:scale-105">
+                                   <span className="text-3xl">🔊</span>
+                                   <span className="font-black text-white text-lg tracking-widest">TAP FOR SOUND</span>
+                               </div>
+                           </div>
+                       )}
+
+                       {/* 🔥 UPDATED SMART SHIELDS (PERCENTAGE BASED FOR RESPONSIVENESS) */}
                        
-                       {/* 🔥 NUCLEAR SHIELD 2: Top Right (Covers Share/Watch Later) - BLOCKS TOUCH */}
+                       {/* 1. TOP RIGHT SHIELD (Covers Watch Later / Share) */}
+                       {/* Fix: Only covers the top-right corner icons. Allows center/left clicks. */}
                        <div 
-                            className="absolute top-0 right-0 w-[200px] h-[80px] z-[9999]" 
+                            className="absolute top-0 right-0 z-[60]"
                             style={{ 
+                                width: '25%',        // Covers about 25% from right
+                                maxWidth: '160px',   // Cap width on desktop
+                                height: '20%',       // Covers top strip
+                                maxHeight: '80px',   // Cap height
                                 pointerEvents: 'auto', 
-                                background: 'rgba(255,0,0,0.01)' 
+                                background: 'transparent' // Invisible
                             }}
                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                             onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -379,14 +409,47 @@ function WatchContent() {
                             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
                        ></div>
 
-                       {/* PAUSE OVERLAY + MARQUEE */}
+                       {/* 2. BOTTOM RIGHT SHIELD (Covers YouTube Logo) */}
+                       {/* Fix: Covers the YouTube logo area specifically. */}
+                       <div 
+                            className="absolute bottom-0 right-0 z-[60]"
+                            style={{ 
+                                width: '20%',        // Small corner area
+                                maxWidth: '130px', 
+                                height: '20%',       // Just the bottom strip
+                                maxHeight: '60px',
+                                pointerEvents: 'auto', 
+                                background: 'transparent'
+                            }}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                            onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                       ></div>
+
+                       {/* 3. TOP LEFT SHIELD (Covers Title Link) */}
+                        <div 
+                            className="absolute top-0 left-0 z-[60]"
+                            style={{ 
+                                width: '40%', 
+                                height: '20%', 
+                                maxHeight: '70px',
+                                pointerEvents: 'auto', 
+                                background: 'transparent' 
+                            }}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                            onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                       ></div>
+
+                       {/* 🔥 PAUSE OVERLAY (FIXED: INSTANT APPEARANCE, NO DELAY) */}
                        {playerState === 2 && (
-                           <div className="absolute inset-x-0 bottom-0 h-[40%] bg-gradient-to-t from-black via-black/95 to-transparent z-20 flex items-end pb-6 pointer-events-none">
-                               <div className="w-full overflow-hidden whitespace-nowrap">
-                                   <div className="inline-block animate-marquee pl-full">
-                                       <span className="text-2xl font-bold text-white/90 mx-8 tracking-wide">ScanVidz - Premium Video Engine</span>
-                                       <span className="text-2xl font-bold text-blue-400/90 mx-8 tracking-wide">No Ads & No Tracking</span>
-                                       <span className="text-2xl font-bold text-red-500/90 mx-8 tracking-wide">High Speed 4K Download</span>
+                           <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black via-black/90 to-transparent z-50 flex items-center justify-center pb-4 pointer-events-none">
+                               <div className="flex flex-col items-center">
+                                   <span className="text-xl font-black text-white tracking-widest uppercase mb-1">ScanVidz Premium</span>
+                                   <div className="flex gap-4 text-xs font-bold text-gray-400">
+                                       <span className="text-blue-400">NO ADS</span> • <span>NO TRACKING</span> • <span className="text-red-400">4K DL</span>
                                    </div>
                                </div>
                            </div>
@@ -423,7 +486,19 @@ function WatchContent() {
 
               {/* INFO & ACTIONS SECTION */}
               <div className="mt-4">
-                 <h1 className="text-xl md:text-2xl font-bold line-clamp-2 leading-snug">{title}</h1>
+                 <div className="flex justify-between items-start gap-4">
+                     <h1 className="text-xl md:text-2xl font-bold line-clamp-2 leading-snug flex-1">{title}</h1>
+                     
+                     {/* 🔥 CUSTOM FULLSCREEN BUTTON (Replaces Hidden YouTube Button) */}
+                     {/* This button forces the CONTAINER div to go full screen, ensuring video fits */}
+                     <button 
+                        onClick={toggleFullscreen}
+                        className="p-2.5 bg-[#272727] hover:bg-[#3f3f3f] rounded-full border border-gray-700 transition flex-shrink-0"
+                        title="Fullscreen Mode"
+                     >
+                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                     </button>
+                 </div>
                  
                  <div className="flex flex-wrap items-center justify-between mt-4 pb-4 border-b border-gray-800 gap-4">
                     <div className="flex items-center gap-3">
