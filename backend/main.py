@@ -11,28 +11,27 @@ import os
 import shutil
 import uuid
 
-# --- DATABASE IMPORTS (New) ---
+# --- DATABASE IMPORTS ---
 from sqlalchemy import create_engine, Column, String, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
 app = FastAPI()
 
-# --- 1. CORS CONFIGURATION (Sabse Zaruri) ---
+# --- 1. CORS CONFIGURATION ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Production me specific domain dalein
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ---------------------------------------------------------
-# ⚙️ DATABASE SETUP (PostgreSQL) - 🔥 NEW ADDITION
+# ⚙️ DATABASE SETUP (PostgreSQL)
 # ---------------------------------------------------------
 
-# 👇 YAHAN APNA PASSWORD OR DB NAME DALO 👇
-# Format: postgresql://username:password@localhost/dbname
+# 👇 APNA DATABASE URL YAHAN HAI 👇
 SQLALCHEMY_DATABASE_URL = "postgresql://neondb_owner:npg_GP6XqUDHMZc5@ep-spring-surf-a1wl9hrh-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
 
 # Engine Create
@@ -43,7 +42,7 @@ try:
     print("✅ Database Connected Successfully!")
 except Exception as e:
     print("❌ Database Connection Failed:", e)
-    Base = declarative_base() # Fallback to prevent crash
+    Base = declarative_base() # Fallback
 
 # --- USER MODEL (Table) ---
 class User(Base):
@@ -55,13 +54,13 @@ class User(Base):
     password = Column(String)
     joined = Column(String)
 
-# Create Tables (Agar nahi bani hai to)
+# Create Tables
 try:
     Base.metadata.create_all(bind=engine)
 except:
     pass
 
-# Dependency (Har request pe DB session dega)
+# Dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -70,10 +69,15 @@ def get_db():
         db.close()
 
 
-# --- SETUP PATHS (Fix for FFmpeg Error) ---
+# --- SETUP PATHS (Universal Fix for Windows/Render) ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
-FFMPEG_PATH = os.path.join(current_dir, "ffmpeg.exe") # Auto-detect FFmpeg in backend folder
 DOWNLOAD_DIR = os.path.join(current_dir, "downloads")
+
+# Fix: Check OS to select correct FFmpeg
+if os.name == 'nt': # Windows
+    FFMPEG_PATH = os.path.join(current_dir, "ffmpeg.exe")
+else: # Linux / Render
+    FFMPEG_PATH = "ffmpeg" # System Path se uthayega
 
 # --- FIX: Create Downloads Folder Safely ---
 if not os.path.exists(DOWNLOAD_DIR):
@@ -83,7 +87,7 @@ if not os.path.exists(DOWNLOAD_DIR):
 def cleanup_file(path: str):
     """File bhejne ke baad delete kar dega"""
     try:
-        time.sleep(5) # File lock se bachne ke liye wait
+        time.sleep(5) 
         if os.path.exists(path):
             os.remove(path)
             print(f"🗑️ Deleted temp file: {path}")
@@ -105,10 +109,9 @@ def get_avatar(name):
     return f"https://ui-avatars.com/api/?background=random&color=fff&name={safe_name}&size=128"
 
 # -------------------------------------------------------------------------
-# 🔥 USER AUTHENTICATION SYSTEM (Connected to PostgreSQL)
+# 🔥 USER AUTHENTICATION SYSTEM
 # -------------------------------------------------------------------------
 
-# Data Models
 class UserSignup(BaseModel):
     name: str
     email_or_phone: str
@@ -118,20 +121,17 @@ class UserLogin(BaseModel):
     email_or_phone: str
     password: str
 
-# 1. SIGNUP API (Updated for DB)
 @app.post("/signup")
 def signup(user: UserSignup, db: Session = Depends(get_db)):
-    # Check if user already exists
     existing_user = db.query(User).filter(User.email_or_phone == user.email_or_phone).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="User already exists")
     
-    # Create new user
     new_user = User(
         id=str(uuid.uuid4()),
         name=user.name,
         email_or_phone=user.email_or_phone,
-        password=user.password, # In real app, hash this password!
+        password=user.password,
         joined=time.strftime("%Y-%m-%d")
     )
     
@@ -142,10 +142,8 @@ def signup(user: UserSignup, db: Session = Depends(get_db)):
     print(f"✅ New User Registered: {user.name}")
     return {"status": "success", "message": "Account created successfully", "user": new_user}
 
-# 2. LOGIN API (Updated for DB)
 @app.post("/login")
 def login(user: UserLogin, db: Session = Depends(get_db)):
-    # Find user in DB
     db_user = db.query(User).filter(
         User.email_or_phone == user.email_or_phone, 
         User.password == user.password
@@ -157,7 +155,6 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
     print(f"🔓 User Logged In: {db_user.name}")
     return {"status": "success", "message": "Login successful", "user": db_user}
 
-# 3. GET USER PROFILE (Updated for DB)
 @app.get("/me")
 def get_user_profile(user_id: str, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
@@ -167,14 +164,13 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db)):
 
 
 # -------------------------------------------------------------------------
-# 🔥 EXISTING VIDEO APIS (UNCHANGED)
+# 🔥 VIDEO APIS (UPDATED FOR AUDIO & DOWNLOAD FIX)
 # -------------------------------------------------------------------------
 
 @app.get("/")
 def home():
     return {"message": "ScanVidz Backend is Running High Performance Mode 🚀"}
 
-# 🔥 LIVE SUGGESTIONS
 @app.get("/suggestions")
 def get_suggestions(q: str = Query(None)):
     if not q: return []
@@ -187,7 +183,6 @@ def get_suggestions(q: str = Query(None)):
         print(f"Suggestion Error: {e}")
         return []
 
-# 🔥 SEARCH WITH FILTERS
 @app.get("/search")
 def search_videos(
     q: str = Query(None),
@@ -210,6 +205,7 @@ def search_videos(
     print(f"🔍 Searching: '{search_term}' | Page: {page} | Limit: {limit}")
 
     total_fetch = limit * page
+    # --- FIX: Ensure Search Results are Valid ---
     ydl_opts = {
         'format': 'best',
         'quiet': True,
@@ -247,7 +243,6 @@ def search_videos(
     return {"status": "success", "results": results, "page": page, "next_page": page + 1}
 
 
-# --- 4. FORMATS ENDPOINT (4K UNLOCKED & AUDIO CHECK) ---
 @app.get("/formats")
 def get_formats(v: str):
     if not v: return {"status": "error", "message": "Video ID missing"}
@@ -264,7 +259,6 @@ def get_formats(v: str):
             info = ydl.extract_info(video_url, download=False)
             
             for f in info.get('formats', []):
-                # Allow mp4 AND webm (because 4K/8K is often webm)
                 if f.get('ext') in ['mp4', 'webm'] and f.get('protocol') in ['https', 'http']:
                     
                     height = f.get('height') or 0
@@ -274,13 +268,12 @@ def get_formats(v: str):
                     quality_label = f"{height}p"
                     needs_merge = False
                     
-                    # Logic: 1080p, 2K, 4K, 8K needs merge for audio fix
                     if height >= 1080:
                         quality_label += " (HQ + Audio 🔊)" 
                         needs_merge = True
-                        size_mb = 0 # Server calculate karega
+                        size_mb = 0 
                     elif has_audio:
-                        if f.get('ext') == 'webm': continue # Skip small webm
+                        if f.get('ext') == 'webm': continue 
                         quality_label += " (Direct)"
                         needs_merge = False
                     else:
@@ -289,13 +282,12 @@ def get_formats(v: str):
                     formats_list.append({
                         "format_id": f['format_id'],
                         "quality": quality_label,
-                        "ext": "mp4", # User ko MP4 hi milega
+                        "ext": "mp4",
                         "size": f"{size_mb:.1f} MB" if size_mb > 0 else "High Quality",
                         "height": height,
                         "needs_merge": needs_merge
                     })
             
-            # Sort Highest to Lowest
             formats_list.sort(key=lambda x: x['height'], reverse=True)
             unique_formats = []
             seen_heights = set()
@@ -310,26 +302,21 @@ def get_formats(v: str):
     return {"status": "success", "formats": unique_formats, "title": info.get('title')}
 
 
-# --- 5. DOWNLOAD ENDPOINT (FIXED: SOUND + DOWNLOAD FOLDER) ---
+# --- 5. DOWNLOAD ENDPOINT (FINAL FIX: AUDIO + RENDER COMPATIBILITY) ---
 @app.get("/download")
 def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, merge: str = "false"):
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     
-    # ----------------------------------------------------
-    # FIX 1: FOLDER SAFETY CHECK (Har baar check karega)
-    # ----------------------------------------------------
-    if not os.path.exists("downloads"):
-        os.makedirs("downloads")
+    # Check Folder
+    if not os.path.exists(DOWNLOAD_DIR):
+        os.makedirs(DOWNLOAD_DIR)
 
-    # 1. DIRECT PLAY/DOWNLOAD (Fix for No Sound)
+    # CASE 1: STREAM / DIRECT LINK (Used for Playing)
     if merge != "true":
-        # ------------------------------------------------------------------
-        # FIX 2: FORCE 'BEST' FORMAT (AUDIO + VIDEO)
-        # Hum 'format_id' ignore kar rahe hain taaki guaranteed Audio aaye
-        # ------------------------------------------------------------------
+        # 🔥 FIX: Force 'best' with MP4 extension. This guarantees Audio + Video compatibility in browsers.
         ydl_opts = {
-            'format': 'best', # HD Quality (720p) with Audio included
+            'format': 'best[ext=mp4]/best', # <-- YE LINE MAGIC KAREGI (AUDIO FIX)
             'quiet': True,
             'noplaylist': True
         }
@@ -341,53 +328,61 @@ def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, me
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    # 2. HQ MERGE (4K/8K Optimized)
+    # CASE 2: FILE DOWNLOAD (High Quality / Merge)
     else:
-        print(f"⚙️ Fast Processing: {video_id} using {FFMPEG_PATH}...")
+        print(f"⚙️ Downloading: {video_id}...")
         filename = f"ScanVidz_{video_id}_{format_id}.mp4"
         filepath = os.path.join(DOWNLOAD_DIR, filename)
         
-        # Check if already downloaded
         if os.path.exists(filepath):
              background_tasks.add_task(cleanup_file, filepath)
-             # 'attachment' header forces download, avoids playing in tab
              return FileResponse(filepath, media_type='application/octet-stream', filename=filename, headers={"Content-Disposition": f"attachment; filename={filename}"})
 
-        # 🔥 SPEED HACK: Prefer 'm4a' audio (AAC) to avoid conversion time
-        ydl_opts = {
-            'format': f"{format_id}+bestaudio[ext=m4a]/bestaudio",
-            'outtmpl': filepath,
-            'merge_output_format': 'mp4',
-            'quiet': True,
-            'ffmpeg_location': FFMPEG_PATH,
-            'postprocessor_args': [
-                '-c:v', 'copy', # Video copy (Instant)
-                '-c:a', 'aac',  # Audio ensure AAC (Safe & Fast)
-                '-strict', 'experimental'
-            ],
-        }
-        
+        # --- TRY HIGH QUALITY MERGE (Best case) ---
         try:
+            ydl_opts = {
+                'format': f"{format_id}+bestaudio[ext=m4a]/bestaudio",
+                'outtmpl': filepath,
+                'merge_output_format': 'mp4',
+                'quiet': True,
+                'ffmpeg_location': FFMPEG_PATH, # Uses 'ffmpeg' on Linux/Render
+                'postprocessor_args': [
+                    '-c:v', 'copy', 
+                    '-c:a', 'aac',  
+                    '-strict', 'experimental'
+                ],
+            }
+            
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([video_url])
-            
-            print(f"✅ Download Ready: {filepath}")
-            background_tasks.add_task(cleanup_file, filepath)
-            
-            # Force Download (No New Tab Playback)
-            return FileResponse(
-                filepath, 
-                media_type='application/octet-stream', 
-                filename=filename,
-                headers={"Content-Disposition": f"attachment; filename={filename}"}
-            )
-            
+                
+            print(f"✅ Download Ready (HQ): {filepath}")
+
+        # --- FALLBACK: AGAR MERGE FAIL HUA TO DIRECT DOWNLOAD ---
         except Exception as e:
-            print(f"❌ Error: {e}")
-            return {"status": "error", "message": f"Server processing failed: {str(e)}. Ensure ffmpeg.exe is in the backend folder."}
+            print(f"⚠️ Merge failed ({e}), switching to Fallback Mode...")
+            try:
+                # Agar FFmpeg nahi mila, to simple 'best' video download karo jo bina merge ke chalta hai
+                ydl_opts = {
+                    'format': 'best[ext=mp4]/best',
+                    'outtmpl': filepath,
+                    'quiet': True
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([video_url])
+                print(f"✅ Download Ready (Fallback): {filepath}")
+            except Exception as final_error:
+                return {"status": "error", "message": f"Download failed completely: {str(final_error)}"}
+
+        background_tasks.add_task(cleanup_file, filepath)
+        return FileResponse(
+            filepath, 
+            media_type='application/octet-stream', 
+            filename=filename,
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
 
 
-# --- 6. TRENDING ENDPOINT ---
 @app.get("/trending")
 def get_trending():
     print("🔥 Fetching Real YouTube Trending...")
@@ -415,6 +410,5 @@ def get_trending():
     return {"status": "success", "videos": results}
 
 
-# --- SERVER RUNNER ---
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
