@@ -90,7 +90,7 @@ function WatchContent() {
   // 4. SMART UP NEXT ALGORITHM (15 Related + 10 Mix)
   // ---------------------------------------------------------
   useEffect(() => {
-     if (title) {
+      if (title) {
         // Fake real-time sub count generation
         setSubCount(`${(Math.random() * 5 + 0.5).toFixed(1)}M`);
 
@@ -115,7 +115,7 @@ function WatchContent() {
             setRelated(combined.slice(0, 25)); // Total 25 Videos set karo
         })
         .catch(err => console.log("Related Error:", err));
-     }
+      }
   }, [title]);
 
   // ---------------------------------------------------------
@@ -145,9 +145,9 @@ function WatchContent() {
   // 6. DOWNLOAD HANDLERS (Backend Connection)
   // ---------------------------------------------------------
   const handleDownload = async () => {
-     if (!videoId) return;
-     setLoadingFormats(true);
-     try {
+      if (!videoId) return;
+      setLoadingFormats(true);
+      try {
         const res = await fetch(`https://scanvidz-default.onrender.com/formats?v=${videoId}`);
         const data = await res.json();
         if (data.status === 'success') {
@@ -156,29 +156,29 @@ function WatchContent() {
         } else {
            alert('Download links currently unavailable.'); 
         }
-     } catch (e) {
+      } catch (e) {
         alert('Server busy. Please try again.');
-     } finally {
+      } finally {
         setLoadingFormats(false);
-     }
+      }
   };
 
   const startDownload = (format: any) => {
-     setShowDownload(false);
+      setShowDownload(false);
 
-     // Check HQ Merge Logic
-     if (format.needs_merge) {
-         setToastMsg("⚡ Processing High Quality Video... Please wait (10-30s)");
-         setTimeout(() => setToastMsg(null), 10000);
-     } else {
-         setToastMsg("Download started in background! 🚀");
-         setTimeout(() => setToastMsg(null), 5000); 
-     }
+      // Check HQ Merge Logic
+      if (format.needs_merge) {
+          setToastMsg("⚡ Processing High Quality Video... Please wait (10-30s)");
+          setTimeout(() => setToastMsg(null), 10000);
+      } else {
+          setToastMsg("Download started in background! 🚀");
+          setTimeout(() => setToastMsg(null), 5000); 
+      }
 
-     // Trigger URL
-     const isMerge = format.needs_merge ? "true" : "false";
-     const url = `https://scanvidz-default.onrender.com/download?v=${videoId}&format_id=${format.format_id}&merge=${isMerge}`;
-     window.open(url, '_blank'); 
+      // Trigger URL
+      const isMerge = format.needs_merge ? "true" : "false";
+      const url = `https://scanvidz-default.onrender.com/download?v=${videoId}&format_id=${format.format_id}&merge=${isMerge}`;
+      window.open(url, '_blank'); 
   };
 
   // ---------------------------------------------------------
@@ -240,16 +240,16 @@ function WatchContent() {
   // 8. NAVIGATION & PLAYER EVENTS
   // ---------------------------------------------------------
   const playRelated = (video: any) => {
-     // Reset States
-     setPlay(false);
-     setPlayerState(-1);
-     
-     // Navigate
-     router.push(`/watch?v=${encodeURIComponent(video.link)}&title=${encodeURIComponent(video.title)}&views=${encodeURIComponent(video.views)}&duration=${encodeURIComponent(video.duration)}&thumbnail=${encodeURIComponent(video.thumbnail)}&channel=${encodeURIComponent(video.channel_name || '')}&avatar=${encodeURIComponent(video.channel_avatar || '')}`);
-     
-     // Scroll Top & Re-play
-     window.scrollTo(0,0);
-     setTimeout(() => setPlay(true), 100); 
+      // Reset States
+      setPlay(false);
+      setPlayerState(-1);
+      
+      // Navigate
+      router.push(`/watch?v=${encodeURIComponent(video.link)}&title=${encodeURIComponent(video.title)}&views=${encodeURIComponent(video.views)}&duration=${encodeURIComponent(video.duration)}&thumbnail=${encodeURIComponent(video.thumbnail)}&channel=${encodeURIComponent(video.channel_name || '')}&avatar=${encodeURIComponent(video.channel_avatar || '')}`);
+      
+      // Scroll Top & Re-play
+      window.scrollTo(0,0);
+      setTimeout(() => setPlay(true), 100); 
   };
 
   const onPlayerReady = (event: any) => {
@@ -311,7 +311,8 @@ function WatchContent() {
                           onStateChange={onPlayerStateChange}
                           opts={{
                               playerVars: {
-                                  autoplay: 1,
+                                  autoplay: 0, // 🔥 FIXED: Auto-play OFF to allow mobile sound
+                                  mute: 0,     // 🔥 FIXED: Mute OFF
                                   controls: 1,
                                   modestbranding: 1,
                                   rel: 0, 
@@ -533,11 +534,11 @@ function WatchContent() {
                 <div className="space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
                    {formats.length > 0 ? formats.map((fmt: any, i) => (
                       <button key={i} onClick={() => startDownload(fmt)} className="w-full flex justify-between items-center bg-[#272727] hover:bg-blue-600 hover:text-white p-4 rounded-xl transition group">
-                         <div className="flex flex-col items-start">
-                            <span className="font-bold text-lg">{fmt.quality || 'MP4'}</span>
-                            <span className="text-xs text-gray-400 group-hover:text-blue-200 uppercase">{fmt.ext}</span>
-                         </div>
-                         <span className="text-sm font-mono bg-black/30 px-2 py-1 rounded">{fmt.size}</span>
+                          <div className="flex flex-col items-start">
+                             <span className="font-bold text-lg">{fmt.quality || 'MP4'}</span>
+                             <span className="text-xs text-gray-400 group-hover:text-blue-200 uppercase">{fmt.ext}</span>
+                          </div>
+                          <span className="text-sm font-mono bg-black/30 px-2 py-1 rounded">{fmt.size}</span>
                       </button>
                    )) : (
                       <div className="text-center text-gray-400 py-4">No MP4 formats found.</div>
