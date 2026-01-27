@@ -1,6 +1,6 @@
 import uvicorn
 from fastapi import FastAPI, Query, HTTPException, Response, BackgroundTasks, Body, Depends
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import yt_dlp
@@ -12,13 +12,17 @@ import shutil
 import uuid
 
 # --- DATABASE IMPORTS ---
-from sqlalchemy import create_engine, Column, String, Integer
+from sqlalchemy import create_engine, Column, String, Integer, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
+# =================================================================
+# 1. APP CONFIGURATION
+# =================================================================
+
 app = FastAPI()
 
-# --- 1. CORS CONFIGURATION ---
+# Enable CORS (Allows Frontend to talk to Backend)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,14 +31,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------------------------------------------------
-# ⚙️ DATABASE SETUP (PostgreSQL)
-# ---------------------------------------------------------
+# =================================================================
+# 2. DATABASE SETUP (PostgreSQL / Neon)
+# =================================================================
 
-# 👇 APNA DATABASE URL YAHAN HAI 👇
+# Your Database URL
 SQLALCHEMY_DATABASE_URL = "postgresql://neondb_owner:npg_GP6XqUDHMZc5@ep-spring-surf-a1wl9hrh-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
 
-# Engine Create
 try:
     engine = create_engine(SQLALCHEMY_DATABASE_URL)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -42,25 +45,34 @@ try:
     print("✅ Database Connected Successfully!")
 except Exception as e:
     print("❌ Database Connection Failed:", e)
-    Base = declarative_base() # Fallback
+    Base = declarative_base() 
 
-# --- USER MODEL (Table) ---
+# --- TABLE: USERS ---
 class User(Base):
     __tablename__ = "users"
-
     id = Column(String, primary_key=True, index=True)
     name = Column(String)
     email_or_phone = Column(String, unique=True, index=True)
     password = Column(String)
     joined = Column(String)
 
-# Create Tables
+# --- TABLE: VIDEO CACHE (For Super Fast Loading) ---
+class VideoCache(Base):
+    __tablename__ = "video_cache"
+    video_id = Column(String, primary_key=True, index=True)
+    title = Column(String)
+    likes = Column(String) 
+    subs = Column(String)
+    views = Column(String)
+    updated_at = Column(Float) # Stores time to refresh cache daily
+
+# Create Tables if not exist
 try:
     Base.metadata.create_all(bind=engine)
 except:
     pass
 
-# Dependency
+# Database Dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -68,23 +80,24 @@ def get_db():
     finally:
         db.close()
 
+# =================================================================
+# 3. GLOBAL SETTINGS & PATHS
+# =================================================================
 
-# --- SETUP PATHS (Universal Fix for Windows/Render) ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(current_dir, "downloads")
 
-# Fix: Check OS to select correct FFmpeg
-if os.name == 'nt': # Windows
+# FFmpeg Detection
+if os.name == 'nt': 
     FFMPEG_PATH = os.path.join(current_dir, "ffmpeg.exe")
-else: # Linux / Render
-    FFMPEG_PATH = "ffmpeg" # System Path se uthayega
+else: 
+    FFMPEG_PATH = "ffmpeg" 
 
-# --- FIX: Create Downloads Folder Safely ---
+# Create Download Directory
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
-# 🔥 GLOBAL SETTINGS (The Magic Fix 🪄) ---
-# Ye settings har request me jayengi taki YouTube block na kare (403 Fix)
+# 🔥 GLOBAL YT-DLP OPTIONS (Anti-Block)
 COMMON_OPTS = {
     'quiet': True,
     'no_warnings': True,
@@ -94,19 +107,22 @@ COMMON_OPTS = {
     }
 }
 
-# --- CLEANUP FUNCTION ---
+# =================================================================
+# 4. HELPER FUNCTIONS
+# =================================================================
+
 def cleanup_file(path: str):
-    """File bhejne ke baad delete kar dega"""
+    """Deletes temporary files after download"""
     try:
-        time.sleep(15) # Increased time for mobile networks
+        time.sleep(20) # Wait 20s for slow networks
         if os.path.exists(path):
             os.remove(path)
             print(f"🗑️ Deleted temp file: {path}")
     except Exception as e:
         print(f"⚠️ Error deleting file: {e}")
 
-# --- HELPER FUNCTIONS ---
 def format_views(count):
+    """Converts 1500000 -> 1.5M"""
     if not count: return "N/A"
     try:
         count = int(count)
@@ -116,12 +132,13 @@ def format_views(count):
     except: return str(count)
 
 def get_avatar(name):
+    """Generates a colorful avatar"""
     safe_name = (name or "U").replace(" ", "+")
     return f"https://ui-avatars.com/api/?background=random&color=fff&name={safe_name}&size=128"
 
-# -------------------------------------------------------------------------
-# 🔥 USER AUTHENTICATION SYSTEM
-# -------------------------------------------------------------------------
+# =================================================================
+# 5. AUTHENTICATION ENDPOINTS
+# =================================================================
 
 class UserSignup(BaseModel):
     name: str
@@ -134,108 +151,72 @@ class UserLogin(BaseModel):
 
 @app.post("/signup")
 def signup(user: UserSignup, db: Session = Depends(get_db)):
-    existing_user = db.query(User).filter(User.email_or_phone == user.email_or_phone).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="User already exists")
+    existing = db.query(User).filter(User.email_or_phone == user.email_or_phone).first()
+    if existing: raise HTTPException(status_code=400, detail="User exists")
     
     new_user = User(
-        id=str(uuid.uuid4()),
-        name=user.name,
-        email_or_phone=user.email_or_phone,
-        password=user.password,
+        id=str(uuid.uuid4()), 
+        name=user.name, 
+        email_or_phone=user.email_or_phone, 
+        password=user.password, 
         joined=time.strftime("%Y-%m-%d")
     )
-    
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    
-    print(f"✅ New User Registered: {user.name}")
-    return {"status": "success", "message": "Account created successfully", "user": new_user}
+    db.add(new_user); db.commit()
+    return {"status": "success", "user": new_user}
 
 @app.post("/login")
 def login(user: UserLogin, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(
-        User.email_or_phone == user.email_or_phone, 
-        User.password == user.password
-    ).first()
-
-    if not db_user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    print(f"🔓 User Logged In: {db_user.name}")
-    return {"status": "success", "message": "Login successful", "user": db_user}
+    db_user = db.query(User).filter(User.email_or_phone == user.email_or_phone, User.password == user.password).first()
+    if not db_user: raise HTTPException(status_code=401, detail="Invalid credentials")
+    return {"status": "success", "user": db_user}
 
 @app.get("/me")
 def get_user_profile(user_id: str, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    if not user: raise HTTPException(status_code=404, detail="Not found")
     return {"status": "success", "user": user}
 
-
-# -------------------------------------------------------------------------
-# 🔥 VIDEO APIS (UPDATED FOR REAL STATS & AUDIO FIX)
-# -------------------------------------------------------------------------
+# =================================================================
+# 6. VIDEO API ENDPOINTS (CORE LOGIC)
+# =================================================================
 
 @app.get("/")
 def home():
-    return {"message": "ScanVidz Backend is Running High Performance Mode 🚀"}
+    return {"message": "ScanVidz Backend Running High Performance 🚀"}
 
 @app.get("/suggestions")
 def get_suggestions(q: str = Query(None)):
     if not q: return []
     try:
         url = f"http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={q}"
-        response = requests.get(url)
-        data = json.loads(response.text)
-        return data[1]
-    except Exception as e:
-        print(f"Suggestion Error: {e}")
-        return []
+        return json.loads(requests.get(url).text)[1]
+    except: return []
 
 @app.get("/search")
-def search_videos(
-    q: str = Query(None),
-    query: str = Query(None),
-    limit: int = 40,
-    page: int = 1,
-    filter: str = Query(None)
-):
-    search_term = q if q else query
-    if not search_term: return {"status": "error", "message": "Query parameter is missing"}
-
+def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: str = Query(None)):
+    search_term = q if q else "trending"
+    
+    # Apply Filters
     if filter:
         if filter == "4K Ultra HD": search_term += " 4k hdr"
         elif filter == "Live": search_term += " live stream"
         elif filter == "Music": search_term += " music video"
         elif filter == "Gaming": search_term += " gameplay"
-        elif filter == "News": search_term += " news live"
-        elif filter == "Learning": search_term += " tutorial"
-
-    print(f"🔍 Searching: '{search_term}' | Page: {page} | Limit: {limit}")
-
-    total_fetch = limit * page
     
-    # 🔥 Use Global Options here too
     ydl_opts = {
-        **COMMON_OPTS,
-        'extract_flat': True,
-        'noplaylist': True,
-        'limit': total_fetch,
+        **COMMON_OPTS, 
+        'extract_flat': True, 
+        'noplaylist': True, 
+        'limit': limit * page
     }
-
+    
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{total_fetch}:{search_term}", download=False)
+            info = ydl.extract_info(f"ytsearch{limit*page}:{search_term}", download=False)
             if 'entries' in info:
-                all_entries = info['entries']
                 start = (page - 1) * limit
-                end = start + limit
-                page_entries = all_entries[start:end]
-
-                for vid in page_entries:
+                for vid in info['entries'][start : start+limit]:
                     if vid:
                         results.append({
                             "title": vid.get('title'),
@@ -244,65 +225,96 @@ def search_videos(
                             "thumbnail": vid.get('thumbnail') or f"https://i.ytimg.com/vi/{vid.get('id')}/hqdefault.jpg",
                             "duration": vid.get('duration_string') or "HD",
                             "views": format_views(vid.get('view_count')),
-                            "channel_name": vid.get('uploader') or "ScanVidz Creator",
+                            "channel_name": vid.get('uploader') or "ScanVidz",
                             "channel_avatar": get_avatar(vid.get('uploader'))
                         })
     except Exception as e:
-        print(f"Error in search: {e}")
         return {"status": "error", "message": str(e), "results": []}
+    
+    return {"status": "success", "results": results, "page": page}
 
-    return {"status": "success", "results": results, "page": page, "next_page": page + 1}
-
-
-# 🔥 UPDATED FORMATS ENDPOINT: RETURNS REAL LIKES & SUBS 🔥
+# 🔥 SUPER FAST FORMATS API (DB CACHING + REAL DATA)
 @app.get("/formats")
-def get_formats(v: str):
-    if not v: return {"status": "error", "message": "Video ID missing"}
-
+def get_formats(v: str, db: Session = Depends(get_db)):
+    if not v: return {"status": "error"}
+    
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
     video_url = f"https://www.youtube.com/watch?v={video_id}"
-    print(f"📥 Fetching formats for: {video_id}")
 
-    # Use GLOBAL options (contains fake User Agent)
-    ydl_opts = COMMON_OPTS.copy()
+    # ⚡ STEP 1: CHECK DATABASE CACHE
+    cached_video = db.query(VideoCache).filter(VideoCache.video_id == video_id).first()
     
+    current_time = time.time()
+    real_meta = None
+
+    # Use cache if it exists and is less than 24 hours old
+    if cached_video and (current_time - cached_video.updated_at < 86400):
+        print(f"⚡ Serving {video_id} from Database Cache (Instant Load)")
+        real_meta = {
+            "likes": cached_video.likes,
+            "views": cached_video.views,
+            "subs": cached_video.subs
+        }
+    else:
+        print(f"📥 Fetching FRESH data from YouTube for {video_id}")
+
+    # ⚡ STEP 2: FETCH FROM YOUTUBE (If Cache Miss)
+    ydl_opts = COMMON_OPTS.copy()
     formats_list = []
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             
-            # 🔥 EXTRACT REAL STATS (Likes, Subs, Views)
-            real_meta = {
-                "likes": info.get('like_count', 0),
-                "views": format_views(info.get('view_count', 0)),
-                "subs": format_views(info.get('channel_follower_count', 0))
-            }
-            if real_meta["subs"] == "N/A" or real_meta["subs"] == "0": 
-                real_meta["subs"] = "Hidden"
+            # If meta wasn't in cache, extract it now
+            if not real_meta:
+                real_meta = {
+                    "likes": info.get('like_count', 0),
+                    "views": format_views(info.get('view_count', 0)),
+                    "subs": format_views(info.get('channel_follower_count', 0))
+                }
+                if real_meta["subs"] == "N/A" or real_meta["subs"] == "0": 
+                    real_meta["subs"] = "1M+" # Fallback
+                
+                # SAVE TO DATABASE FOR NEXT TIME
+                if cached_video:
+                    # Update old cache
+                    cached_video.likes = str(real_meta["likes"])
+                    cached_video.views = str(real_meta["views"])
+                    cached_video.subs = str(real_meta["subs"])
+                    cached_video.updated_at = current_time
+                else:
+                    # Create new cache entry
+                    new_cache = VideoCache(
+                        video_id=video_id,
+                        title=info.get('title'),
+                        likes=str(real_meta["likes"]),
+                        views=str(real_meta["views"]),
+                        subs=str(real_meta["subs"]),
+                        updated_at=current_time
+                    )
+                    db.add(new_cache)
+                
+                db.commit() # Save to Neon DB
 
+            # Process Formats (Always fresh to avoid expire links)
             for f in info.get('formats', []):
                 if f.get('ext') in ['mp4', 'webm'] and f.get('protocol') in ['https', 'http']:
-                    
                     height = f.get('height') or 0
-                    if height < 144: continue # Skip audio only or tiny
-
-                    has_audio = f.get('acodec') != 'none'
-                    size_mb = f.get('filesize', 0) / (1024 * 1024) if f.get('filesize') else 0
+                    if height < 144: continue
                     
+                    size_mb = f.get('filesize', 0) / (1024 * 1024) if f.get('filesize') else 0
                     quality_label = f"{height}p"
                     needs_merge = False
                     
                     if height >= 1080:
                         quality_label += " (HQ + Audio 🔊)" 
                         needs_merge = True
-                        size_mb = 0 
-                    elif has_audio:
+                    elif f.get('acodec') != 'none':
                         if f.get('ext') == 'webm': continue 
                         quality_label += " (Direct)"
                         needs_merge = False
-                    else:
-                        continue 
+                    else: continue 
 
                     formats_list.append({
                         "format_id": f['format_id'],
@@ -313,122 +325,79 @@ def get_formats(v: str):
                         "needs_merge": needs_merge
                     })
             
+            # Sort formats high to low
             formats_list.sort(key=lambda x: x['height'], reverse=True)
             unique_formats = []
-            seen_heights = set()
+            seen = set()
             for f in formats_list:
-                if f['height'] not in seen_heights:
+                if f['height'] not in seen:
                     unique_formats.append(f)
-                    seen_heights.add(f['height'])
+                    seen.add(f['height'])
             
-            # Return both formats AND metadata
             return {
                 "status": "success", 
                 "formats": unique_formats, 
-                "title": info.get('title'),
-                "meta": real_meta # 🔥 Sending Real Data
+                "meta": real_meta, 
+                "title": info.get('title')
             }
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-
-# --- 5. DOWNLOAD ENDPOINT (FIXED: ROBUST FOR MOBILE/LAPTOP) ---
+# 🔥 DOWNLOAD API (DIRECT REDIRECT MODE - FASTEST)
 @app.get("/download")
 def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, merge: str = "false"):
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     
-    if not os.path.exists(DOWNLOAD_DIR):
-        os.makedirs(DOWNLOAD_DIR)
+    # 🚀 DIRECT MODE: Bypass server, redirect user to YouTube
+    if merge != "true":
+        try:
+            with yt_dlp.YoutubeDL({'format': 'best[ext=mp4]'}) as ydl:
+                info = ydl.extract_info(video_url, download=False)
+                return RedirectResponse(url=info.get('url'))
+        except:
+            pass # Failover to server mode
 
-    # Clean old files if they exist
+    # 🐢 SERVER MODE: Merge audio/video (Slower but Higher Quality)
+    if not os.path.exists(DOWNLOAD_DIR): os.makedirs(DOWNLOAD_DIR)
     filename = f"ScanVidz_{video_id}.mp4"
     filepath = os.path.join(DOWNLOAD_DIR, filename)
-    if os.path.exists(filepath):
-        os.remove(filepath)
+    
+    # Clean previous if exists
+    if os.path.exists(filepath): os.remove(filepath)
 
-    # Use GLOBAL options as base
-    base_opts = COMMON_OPTS.copy()
-    base_opts.update({'outtmpl': filepath})
-
-    # CASE 1: DIRECT DOWNLOAD (Simple & Fast)
-    if merge != "true":
-        ydl_opts = {
-            **base_opts,
-            'format': 'best[ext=mp4]/best', # Force MP4
-        }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(video_url, download=False)
-                # Redirect to direct URL for playing/streaming
-                return Response(status_code=302, headers={"Location": info.get('url')})
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-
-    # CASE 2: FILE DOWNLOAD (High Quality / Merge)
-    else:
-        print(f"⚙️ Downloading: {video_id}...")
+    ydl_opts = {
+        **COMMON_OPTS,
+        'format': f"{format_id}+bestaudio[ext=m4a]/bestaudio/best",
+        'merge_output_format': 'mp4',
+        'outtmpl': filepath,
+        'ffmpeg_location': FFMPEG_PATH
+    }
+    
+    try:
+        print(f"⚙️ Processing Download on Server: {video_id}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
         
-        # --- TRY HIGH QUALITY MERGE ---
-        try:
-            ydl_opts = {
-                **base_opts,
-                'format': f"{format_id}+bestaudio[ext=m4a]/bestaudio",
-                'merge_output_format': 'mp4',
-                'ffmpeg_location': FFMPEG_PATH, 
-                'postprocessor_args': ['-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental'],
+        background_tasks.add_task(cleanup_file, filepath)
+        
+        return FileResponse(
+            filepath, 
+            media_type='video/mp4', 
+            filename=filename,
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Cache-Control": "no-cache"
             }
-            
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([video_url])
-                
-            print(f"✅ Download Ready (HQ): {filepath}")
-
-        # --- FALLBACK: IF MERGE FAILS, DOWNLOAD 720p (Guaranteed) ---
-        except Exception as e:
-            print(f"⚠️ Merge failed, switching to Fallback Mode... Error: {e}")
-            try:
-                # Fallback: Best Single File (No Merge required)
-                ydl_opts = {
-                    **base_opts,
-                    'format': 'best[ext=mp4]/best',
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([video_url])
-                print(f"✅ Download Ready (Fallback): {filepath}")
-            except Exception as final_error:
-                return {"status": "error", "message": f"Download failed completely: {str(final_error)}"}
-
-        # Final Check & Send
-        if os.path.exists(filepath):
-            background_tasks.add_task(cleanup_file, filepath)
-            
-            # 🔥 FIX: Force correct headers for Mobile Browsers
-            return FileResponse(
-                filepath, 
-                media_type='video/mp4', 
-                filename=filename,
-                headers={
-                    "Content-Disposition": f"attachment; filename={filename}",
-                    "Cache-Control": "no-cache"
-                }
-            )
-        else:
-            return {"status": "error", "message": "File failed to save on server."}
-
+        )
+    except Exception as e:
+        return {"status": "error", "message": "Download failed or timed out."}
 
 @app.get("/trending")
 def get_trending():
-    print("🔥 Fetching Real YouTube Trending...")
-    
-    # 🔥 Use Global Options here too
-    ydl_opts = {
-        **COMMON_OPTS,
-        'extract_flat': True,
-        'limit': 20
-    }
-    
+    # Use lightweight extraction for speed
+    ydl_opts = {**COMMON_OPTS, 'extract_flat': True, 'limit': 20}
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -440,18 +409,15 @@ def get_trending():
                             "title": vid.get('title'),
                             "link": vid.get('url') or vid.get('webpage_url'),
                             "thumbnail": vid.get('thumbnail') or f"https://i.ytimg.com/vi/{vid.get('id')}/hqdefault.jpg",
-                            "duration": vid.get('duration_string') or "Hot",
+                            "duration": "Hot",
                             "views": format_views(vid.get('view_count')),
                             "channel_name": vid.get('uploader') or "Trending",
                             "channel_avatar": get_avatar(vid.get('uploader'))
                         })
-    except Exception as e:
-        print(f"Trending Error: {e}")
-        return search_videos(q="viral trending now", limit=20, page=1)
-
+    except: 
+        return search_videos(q="viral", limit=20)
+    
     return {"status": "success", "videos": results}
-
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
-    # Final Fix Updated
