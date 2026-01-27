@@ -2,18 +2,20 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import UserMenu from '@/components/UserMenu'; // 🔥 Import the new UserMenu Component
+import UserMenu from '@/components/UserMenu'; 
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // 🔥 UPDATED STATE: Stores mixed videos
   const [trending, setTrending] = useState<any[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   
-  // 🔥 New State for Load More
-  const [visibleCount, setVisibleCount] = useState(12); 
+  // 🔥 NEW: Pagination State for Infinite Scroll
+  const [page, setPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
   
-  // 🔥 Sidebar State (Added logic so sidebar works on Home Page)
   const [isSidebarOpen, setSidebarOpen] = useState(true);
 
   const router = useRouter();
@@ -22,7 +24,6 @@ export default function Home() {
   // --- 1. RESPONSIVE SIDEBAR LOGIC ---
   useEffect(() => {
       const handleResize = () => {
-          // Mobile pe band rahega, Desktop pe khula
           if (window.innerWidth < 768) setSidebarOpen(false);
           else setSidebarOpen(true);
       };
@@ -31,13 +32,42 @@ export default function Home() {
       return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // --- 2. FETCH TRENDING VIDEOS (Real Data) ---
+  // --- 2. FETCH SMART RANDOM VIDEOS (Initial Load) ---
   useEffect(() => {
-    fetch('https://scanvidz-default.onrender.com/trending')
-      .then(res => res.json())
-      .then(data => setTrending(data.videos || data.results || []))
-      .catch(err => console.log(err));
+    fetchVideos(1, true); // Load Page 1 randomly
   }, []);
+
+  // 🔥 SMART FETCH FUNCTION (Mixes Topics)
+  const fetchVideos = async (pageNum: number, reset = false) => {
+      if(loadingMore) return;
+      setLoadingMore(true);
+
+      // Topics pool to randomize content
+      const topics = ["trending", "music hits", "gaming live", "tech reviews", "movie trailers", "coding tutorials", "vlogs"];
+      const randomTopic = topics[Math.floor(Math.random() * topics.length)]; 
+      
+      try {
+          // Fetch mixed content based on random topic + page number
+          const res = await fetch(`https://scanvidz-default.onrender.com/search?q=${encodeURIComponent(randomTopic)}&limit=12&page=${pageNum}`);
+          const data = await res.json();
+          
+          const newVideos = data.results || data.videos || [];
+          
+          if (reset) {
+              setTrending(newVideos); // Fresh Load
+          } else {
+              // Append new videos (Filter duplicates)
+              setTrending(prev => {
+                  const combined = [...prev, ...newVideos];
+                  return combined.filter((v, i, a) => a.findIndex(t => t.link === v.link) === i);
+              });
+          }
+      } catch (err) {
+          console.log("Fetch Error:", err);
+      } finally {
+          setLoadingMore(false);
+      }
+  };
 
   // --- 3. LIVE SUGGESTIONS LOGIC ---
   useEffect(() => {
@@ -85,17 +115,21 @@ export default function Home() {
         localStorage.setItem('scanvidz_history', JSON.stringify(newHistory));
     } catch(e) {}
     
-    router.push(`/watch?v=${encodeURIComponent(video.link)}&title=${encodeURIComponent(video.title)}&views=${encodeURIComponent(video.views)}&duration=${encodeURIComponent(video.duration)}&thumbnail=${encodeURIComponent(video.thumbnail)}`);
+    // 🔥 PASSING REAL DATA TO WATCH PAGE
+    router.push(`/watch?v=${encodeURIComponent(video.link)}&title=${encodeURIComponent(video.title)}&views=${encodeURIComponent(video.views)}&duration=${encodeURIComponent(video.duration)}&thumbnail=${encodeURIComponent(video.thumbnail)}&channel=${encodeURIComponent(video.channel_name)}&avatar=${encodeURIComponent(video.channel_avatar)}`);
   };
 
+  // 🔥 LOAD MORE HANDLER (Real Infinite Scroll)
   const handleLoadMore = () => {
-      setVisibleCount(prev => prev + 12);
+      const nextPage = page + 1;
+      setPage(nextPage);
+      fetchVideos(nextPage, false); // Append more videos
   };
 
   return (
     <div className="min-h-screen bg-[#050505] text-white selection:bg-blue-500 selection:text-white flex flex-col font-sans">
       
-      {/* --- HEADER (With Sidebar Toggle Button) --- */}
+      {/* --- HEADER --- */}
       <header className="sticky top-0 z-50 bg-[#050505]/95 backdrop-blur-md px-4 h-16 flex items-center justify-between border-b border-gray-800">
          <div className="flex items-center gap-4">
             <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-gray-800 rounded-full text-white">
@@ -104,13 +138,12 @@ export default function Home() {
             <h1 onClick={() => router.push('/')} className="text-xl font-bold cursor-pointer hidden md:block">ScanVidz</h1>
          </div>
          
-         {/* 🔥 REPLACED OLD 'U' BUTTON WITH UserMenu COMPONENT */}
          <UserMenu />
       </header>
 
       <div className="flex flex-1 overflow-hidden relative">
          
-         {/* --- SIDEBAR (Mobile Drawer) --- */}
+         {/* --- SIDEBAR (Mobile) --- */}
          <div className={`fixed inset-y-0 left-0 z-40 w-64 bg-[#0f0f0f] border-r border-gray-800 transform transition-transform duration-300 md:hidden ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} pt-20`}>
             <div className="p-3 space-y-1">
                <SidebarItem icon="🏠" text="Home" active onClick={() => router.push('/')} isOpen={true} />
@@ -191,7 +224,7 @@ export default function Home() {
             {/* Trending Grid */}
             <section className="z-0 w-full max-w-[1600px] px-4 md:px-6 mt-16 md:mt-24 mb-20">
                 <div className="flex items-center gap-4 mb-8 pl-2 border-l-4 border-blue-600">
-                    <h2 className="text-2xl md:text-3xl font-bold">Trending Now</h2>
+                    <h2 className="text-2xl md:text-3xl font-bold">Recommended For You</h2>
                     <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded animate-pulse">LIVE</span>
                 </div>
                 
@@ -204,7 +237,7 @@ export default function Home() {
                 ) : (
                     <>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {trending.slice(0, visibleCount).map((video, idx) => (
+                    {trending.map((video, idx) => (
                         <div key={idx} onClick={() => playVideo(video)} className="bg-[#121212] rounded-xl overflow-hidden cursor-pointer group hover:scale-[1.02] transition-transform duration-300 border border-transparent hover:border-gray-700">
                         <div className="relative aspect-video">
                             <img src={video.thumbnail} className="w-full h-full object-cover" onError={(e:any) => e.target.src='https://via.placeholder.com/640x360'}/>
@@ -226,11 +259,17 @@ export default function Home() {
                         </div>
                     ))}
                     </div>
-                    {visibleCount < trending.length && (
-                        <div className="flex justify-center mt-12">
-                            <button onClick={handleLoadMore} className="bg-[#1f1f1f] hover:bg-[#333] text-white px-8 py-3 rounded-full font-bold border border-gray-700 transition-all hover:scale-105">Load More Videos</button>
-                        </div>
-                    )}
+                    
+                    {/* 🔥 LOAD MORE BUTTON */}
+                    <div className="flex justify-center mt-12 pb-20">
+                        <button 
+                            onClick={handleLoadMore} 
+                            disabled={loadingMore}
+                            className="bg-[#1f1f1f] hover:bg-[#333] text-white px-8 py-3 rounded-full font-bold border border-gray-700 transition-all hover:scale-105 flex items-center gap-2"
+                        >
+                            {loadingMore ? 'Loading...' : 'Load More Videos'}
+                        </button>
+                    </div>
                     </>
                 )}
             </section>
