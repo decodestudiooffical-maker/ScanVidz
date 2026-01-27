@@ -83,11 +83,22 @@ else: # Linux / Render
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
+# 🔥 GLOBAL SETTINGS (The Magic Fix 🪄) ---
+# Ye settings har request me jayengi taki YouTube block na kare (403 Fix)
+COMMON_OPTS = {
+    'quiet': True,
+    'no_warnings': True,
+    'nocheckcertificate': True,
+    'http_headers': {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    }
+}
+
 # --- CLEANUP FUNCTION ---
 def cleanup_file(path: str):
     """File bhejne ke baad delete kar dega"""
     try:
-        time.sleep(10) # Thoda time do taki slow internet pe bhi file corrupt na ho
+        time.sleep(15) # Increased time for mobile networks
         if os.path.exists(path):
             os.remove(path)
             print(f"🗑️ Deleted temp file: {path}")
@@ -205,9 +216,10 @@ def search_videos(
     print(f"🔍 Searching: '{search_term}' | Page: {page} | Limit: {limit}")
 
     total_fetch = limit * page
+    
+    # 🔥 Use Global Options here too
     ydl_opts = {
-        'format': 'best',
-        'quiet': True,
+        **COMMON_OPTS,
         'extract_flat': True,
         'noplaylist': True,
         'limit': total_fetch,
@@ -250,7 +262,9 @@ def get_formats(v: str):
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     print(f"📥 Fetching formats for: {video_id}")
 
-    ydl_opts = {'quiet': True}
+    # Use GLOBAL options (contains fake User Agent)
+    ydl_opts = COMMON_OPTS.copy()
+    
     formats_list = []
 
     try:
@@ -261,6 +275,8 @@ def get_formats(v: str):
                 if f.get('ext') in ['mp4', 'webm'] and f.get('protocol') in ['https', 'http']:
                     
                     height = f.get('height') or 0
+                    if height < 144: continue # Skip audio only or tiny
+
                     has_audio = f.get('acodec') != 'none'
                     size_mb = f.get('filesize', 0) / (1024 * 1024) if f.get('filesize') else 0
                     
@@ -316,39 +332,33 @@ def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, me
     if os.path.exists(filepath):
         os.remove(filepath)
 
-    # 🔥 FIX: Headers to prevent 403 Forbidden (Download Block)
-    # Ye headers YouTube ko batate hain ki hum browser hain, robot nahi
-    common_opts = {
-        'quiet': True,
-        'noplaylist': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        }
-    }
+    # Use GLOBAL options as base
+    base_opts = COMMON_OPTS.copy()
+    base_opts.update({'outtmpl': filepath})
 
     # CASE 1: DIRECT DOWNLOAD (Simple & Fast)
     if merge != "true":
         ydl_opts = {
-            **common_opts,
+            **base_opts,
             'format': 'best[ext=mp4]/best', # Force MP4
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
+                # Redirect to direct URL for playing/streaming
                 return Response(status_code=302, headers={"Location": info.get('url')})
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    # CASE 2: HIGH QUALITY MERGE (Or Fallback)
+    # CASE 2: FILE DOWNLOAD (High Quality / Merge)
     else:
         print(f"⚙️ Downloading: {video_id}...")
         
         # --- TRY HIGH QUALITY MERGE ---
         try:
             ydl_opts = {
-                **common_opts,
+                **base_opts,
                 'format': f"{format_id}+bestaudio[ext=m4a]/bestaudio",
-                'outtmpl': filepath,
                 'merge_output_format': 'mp4',
                 'ffmpeg_location': FFMPEG_PATH, 
                 'postprocessor_args': ['-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental'],
@@ -365,9 +375,8 @@ def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, me
             try:
                 # Fallback: Best Single File (No Merge required)
                 ydl_opts = {
-                    **common_opts,
+                    **base_opts,
                     'format': 'best[ext=mp4]/best',
-                    'outtmpl': filepath,
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([video_url])
@@ -375,24 +384,35 @@ def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, me
             except Exception as final_error:
                 return {"status": "error", "message": f"Download failed completely: {str(final_error)}"}
 
-        background_tasks.add_task(cleanup_file, filepath)
-        
-        # 🔥 FIX: Force correct headers for Mobile Browsers
-        return FileResponse(
-            filepath, 
-            media_type='video/mp4',  # Explicit MP4 type
-            filename=filename,
-            headers={
-                "Content-Disposition": f"attachment; filename={filename}",
-                "Cache-Control": "no-cache"
-            }
-        )
+        # Final Check & Send
+        if os.path.exists(filepath):
+            background_tasks.add_task(cleanup_file, filepath)
+            
+            # 🔥 FIX: Force correct headers for Mobile Browsers
+            return FileResponse(
+                filepath, 
+                media_type='video/mp4', 
+                filename=filename,
+                headers={
+                    "Content-Disposition": f"attachment; filename={filename}",
+                    "Cache-Control": "no-cache"
+                }
+            )
+        else:
+            return {"status": "error", "message": "File failed to save on server."}
 
 
 @app.get("/trending")
 def get_trending():
     print("🔥 Fetching Real YouTube Trending...")
-    ydl_opts = {'extract_flat': True, 'quiet': True, 'limit': 20}
+    
+    # 🔥 Use Global Options here too
+    ydl_opts = {
+        **COMMON_OPTS,
+        'extract_flat': True,
+        'limit': 20
+    }
+    
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
