@@ -15,9 +15,11 @@ function WatchContent() {
   // ---------------------------------------------------------
   const videoId = (searchParams.get('v') || '').split('v=')[1] || searchParams.get('v');
   const title = searchParams.get('title') || 'Video Player';
-  const views = searchParams.get('views') || '0';
   const thumbnail = searchParams.get('thumbnail') || '';
   const duration = searchParams.get('duration') || '';
+  
+  // Initial placeholders (Will be updated by Real Data)
+  const [views, setViews] = useState(searchParams.get('views') || 'Loading...');
   
   // Channel Info Logic
   const rawChannel = searchParams.get('channel');
@@ -30,9 +32,9 @@ function WatchContent() {
   
   // Player States
   const [play, setPlay] = useState(false);
-  const [playerState, setPlayerState] = useState<number>(-1); // -1:Unstarted, 1:Playing, 2:Paused, 0:Ended
+  const [playerState, setPlayerState] = useState<number>(-1); 
   const [related, setRelated] = useState<any[]>([]);
-  const [countdown, setCountdown] = useState(5); // End screen timer
+  const [countdown, setCountdown] = useState(5);
   
   // 🔥 FULLSCREEN STATE
   const [isFullscreenMode, setIsFullscreenMode] = useState(false);
@@ -43,12 +45,12 @@ function WatchContent() {
   const [loadingFormats, setLoadingFormats] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  // Engagement States
-  const [likes, setLikes] = useState(1540); 
+  // 🔥 REAL ENGAGEMENT STATE (Updated from Backend)
+  const [likes, setLikes] = useState<string | number>("Loading..."); 
   const [isLiked, setIsLiked] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
-  const [subCount, setSubCount] = useState("1.2M");
+  const [subCount, setSubCount] = useState("Loading...");
   
   // Comments Section States
   const [comments, setComments] = useState<any[]>([]);
@@ -102,11 +104,36 @@ function WatchContent() {
   }, []);
 
   // ---------------------------------------------------------
-  // 4. SMART UP NEXT ALGORITHM
+  // 4. FETCH REAL DATA (The New Logic)
+  // ---------------------------------------------------------
+  useEffect(() => {
+      if (videoId) {
+          setLoadingFormats(true);
+          // Calling backend to get Formats + Real Metadata
+          fetch(`https://scanvidz-default.onrender.com/formats?v=${videoId}`)
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    setFormats(data.formats);
+                    
+                    // 🔥 UPDATE UI WITH REAL STATS
+                    if(data.meta) {
+                        setLikes(data.meta.likes);
+                        setSubCount(data.meta.subs);
+                        setViews(data.meta.views);
+                    }
+                }
+            })
+            .catch(err => console.log("Meta Error:", err))
+            .finally(() => setLoadingFormats(false));
+      }
+  }, [videoId]);
+
+  // ---------------------------------------------------------
+  // 5. SMART UP NEXT ALGORITHM
   // ---------------------------------------------------------
   useEffect(() => {
       if (title) {
-        setSubCount(`${(Math.random() * 5 + 0.5).toFixed(1)}M`);
         const mainTag = title.split(' ').slice(0, 4).join(' ');
         const broadTag = title.split(' ').pop() || 'trending';
 
@@ -125,7 +152,7 @@ function WatchContent() {
   }, [title]);
 
   // ---------------------------------------------------------
-  // 5. AUTO PLAY NEXT LOGIC
+  // 6. AUTO PLAY NEXT LOGIC
   // ---------------------------------------------------------
   useEffect(() => {
       let timer: any;
@@ -147,24 +174,14 @@ function WatchContent() {
   }, [playerState, related]);
 
   // ---------------------------------------------------------
-  // 6. DOWNLOAD HANDLERS
+  // 7. DOWNLOAD HANDLERS
   // ---------------------------------------------------------
-  const handleDownload = async () => {
-      if (!videoId) return;
-      setLoadingFormats(true);
-      try {
-        const res = await fetch(`https://scanvidz-default.onrender.com/formats?v=${videoId}`);
-        const data = await res.json();
-        if (data.status === 'success') {
-           setFormats(data.formats);
-           setShowDownload(true);
-        } else {
-           alert('Download links currently unavailable.'); 
-        }
-      } catch (e) {
-        alert('Server busy. Please try again.');
-      } finally {
-        setLoadingFormats(false);
+  const handleDownloadClick = () => {
+      if(formats.length > 0) {
+          setShowDownload(true);
+      } else {
+          // If formats haven't loaded yet (rare case)
+          alert("Loading formats... please wait a moment.");
       }
   };
 
@@ -183,7 +200,7 @@ function WatchContent() {
   };
 
   // ---------------------------------------------------------
-  // 7. ENGAGEMENT HANDLERS
+  // 8. ENGAGEMENT HANDLERS
   // ---------------------------------------------------------
   const handleSubscribe = () => {
       setIsSubscribed(!isSubscribed);
@@ -195,10 +212,11 @@ function WatchContent() {
 
   const handleLike = () => {
       if (isLiked) {
-          setLikes(prev => prev - 1);
+          // Safely decrement if it's a number
+          setLikes(prev => (typeof prev === 'number' ? prev - 1 : prev));
           setIsLiked(false);
       } else {
-          setLikes(prev => prev + 1);
+          setLikes(prev => (typeof prev === 'number' ? prev + 1 : prev));
           setIsLiked(true);
           if (isDisliked) setIsDisliked(false);
       }
@@ -210,7 +228,7 @@ function WatchContent() {
       } else {
           setIsDisliked(true);
           if (isLiked) {
-              setLikes(prev => prev - 1);
+              setLikes(prev => (typeof prev === 'number' ? prev - 1 : prev));
               setIsLiked(false);
           }
       }
@@ -235,7 +253,7 @@ function WatchContent() {
   };
 
   // ---------------------------------------------------------
-  // 8. NAVIGATION & PLAYER EVENTS
+  // 9. NAVIGATION & PLAYER EVENTS
   // ---------------------------------------------------------
   const playRelated = (video: any) => {
       setPlay(false);
@@ -246,7 +264,7 @@ function WatchContent() {
       setTimeout(() => setPlay(true), 100); 
   };
 
-  // 🔥 9. CUSTOM FULLSCREEN FUNCTION (Rotates Mobile Screen)
+  // 🔥 CUSTOM FULLSCREEN FUNCTION (Rotates Mobile Screen)
   const toggleFullscreen = () => {
       if (containerRef.current) {
           if (!document.fullscreenElement) {
@@ -265,15 +283,11 @@ function WatchContent() {
       }
   };
 
-  // 🔥 10. PLAYER LOGIC (NO UI BUTTON, JUST HACKER ATTEMPT)
+  // 🔥 PLAYER LOGIC
   const onPlayerReady = (event: any) => {
       playerRef.current = event.target;
-      
-      // Auto-play Muted (Required for Mobile)
       event.target.mute();
       event.target.playVideo();
-      
-      // Try Auto-Unmute (Invisible Logic)
       setTimeout(() => {
           event.target.unMute(); 
       }, 1000);
@@ -281,10 +295,8 @@ function WatchContent() {
 
   const onPlayerStateChange = (event: any) => {
       setPlayerState(event.data);
-      
-      if (event.data === 1) { // When Playing
+      if (event.data === 1) { 
          const player = event.target;
-         // Try one more auto-unmute attempt silently
          player.isMuted().then((muted: boolean) => {
              if(muted) {
                  player.unMute();
@@ -294,7 +306,7 @@ function WatchContent() {
   };
 
   // ---------------------------------------------------------
-  // 11. UI RENDER START
+  // 10. UI RENDER START
   // ---------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col font-sans">
@@ -327,7 +339,6 @@ function WatchContent() {
            <div className="flex-1 p-4 lg:p-6 lg:pr-0 overflow-y-auto">
               
               {/* 🔥 VIDEO PLAYER CONTAINER WITH FULLSCREEN REF */}
-              {/* Logic: If Fullscreen -> Fixed, Z-100, Full Screen. Else -> Normal Aspect Ratio */}
               <div 
                 ref={containerRef} 
                 className={`w-full bg-black relative group border-gray-800 overflow-hidden ${isFullscreenMode ? 'fixed inset-0 z-[100] h-screen w-screen border-none rounded-none' : 'aspect-video rounded-xl border shadow-2xl'}`}
@@ -336,7 +347,6 @@ function WatchContent() {
                     <div className="w-full h-full relative group">
                        <YouTube
                           videoId={videoId}
-                          // 🔥 100% dimensions are CRITICAL for rotation support
                           style={{ width: '100%', height: '100%' }}
                           className="w-full h-full"
                           iframeClassName="w-full h-full"
@@ -354,59 +364,18 @@ function WatchContent() {
                                   rel: 0, 
                                   showinfo: 0,
                                   iv_load_policy: 3, 
-                                  fs: 0, // Disable YouTube's button, use ours
+                                  fs: 0, 
                                   origin: typeof window !== 'undefined' ? window.location.origin : 'https://scanvidz.vercel.app'
                               }
                           }}
                        />
                        
-                       {/* 🔥 REMOVED: UNMUTE OVERLAY BUTTON */}
-                       {/* Now user will simply unmute using system/player controls if auto-unmute fails */}
+                       {/* 🔥 SMART SHIELDS */}
+                       <div className="absolute top-0 right-0 z-[60]" style={{ width: '25%', maxWidth: '160px', height: '20%', maxHeight: '80px', pointerEvents: 'auto', background: 'transparent' }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}></div>
+                       <div className="absolute bottom-0 right-0 z-[60]" style={{ width: '20%', maxWidth: '130px', height: '20%', maxHeight: '60px', pointerEvents: 'auto', background: 'transparent' }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}></div>
+                       <div className="absolute top-0 left-0 z-[60]" style={{ width: '40%', height: '20%', maxHeight: '70px', pointerEvents: 'auto', background: 'transparent' }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}></div>
 
-                       {/* 🔥 SMART SHIELDS (Percentage Based - Responsive) */}
-                       
-                       {/* 1. TOP RIGHT SHIELD (Watch Later / Share) */}
-                       <div 
-                            className="absolute top-0 right-0 z-[60]"
-                            style={{ 
-                                width: '25%',        
-                                maxWidth: '160px', 
-                                height: '20%',       
-                                maxHeight: '80px',   
-                                pointerEvents: 'auto', 
-                                background: 'transparent' // Invisible
-                            }}
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                       ></div>
-
-                       {/* 2. BOTTOM RIGHT SHIELD (YouTube Logo) */}
-                       <div 
-                            className="absolute bottom-0 right-0 z-[60]"
-                            style={{ 
-                                width: '20%',        
-                                maxWidth: '130px', 
-                                height: '20%',       
-                                maxHeight: '60px',
-                                pointerEvents: 'auto', 
-                                background: 'transparent'
-                            }}
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                       ></div>
-
-                       {/* 3. TOP LEFT SHIELD (Title Link) */}
-                        <div 
-                            className="absolute top-0 left-0 z-[60]"
-                            style={{ 
-                                width: '40%', 
-                                height: '20%', 
-                                maxHeight: '70px',
-                                pointerEvents: 'auto', 
-                                background: 'transparent' 
-                            }}
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                       ></div>
-
-                       {/* 🔥 PAUSE OVERLAY (Instant No-Delay) */}
+                       {/* 🔥 PAUSE OVERLAY */}
                        {playerState === 2 && (
                            <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black via-black/90 to-transparent z-50 flex items-center justify-center pb-4 pointer-events-none">
                                <div className="flex flex-col items-center">
@@ -452,7 +421,7 @@ function WatchContent() {
                  <div className="flex justify-between items-start gap-4">
                      <h1 className="text-xl md:text-2xl font-bold line-clamp-2 leading-snug flex-1">{title}</h1>
                      
-                     {/* 🔥 CUSTOM FULLSCREEN BUTTON (Replaces YouTube's) */}
+                     {/* 🔥 CUSTOM FULLSCREEN BUTTON */}
                      <button 
                         onClick={toggleFullscreen}
                         className="p-2.5 bg-[#272727] hover:bg-[#3f3f3f] rounded-full border border-gray-700 transition flex-shrink-0"
@@ -485,13 +454,27 @@ function WatchContent() {
 
                     <div className="flex items-center gap-2">
                        <div className="bg-[#272727] flex items-center rounded-full overflow-hidden border border-gray-700">
-                          <button onClick={handleLike} className={`px-4 py-2 flex items-center gap-2 text-sm font-medium border-r border-gray-600 transition ${isLiked ? 'text-blue-400' : 'hover:bg-[#3f3f3f]'}`}>👍 {likes}</button>
-                          <button onClick={handleDislike} className={`px-4 py-2 text-sm font-medium transition ${isDisliked ? 'text-blue-400' : 'hover:bg-[#3f3f3f]'}`}>👎</button>
+                          <button onClick={handleLike} className={`px-4 py-2 flex items-center gap-2 text-sm font-medium border-r border-gray-600 transition ${isLiked ? 'text-blue-400' : 'hover:bg-[#3f3f3f]'}`}>
+                              👍 {likes}
+                          </button>
+                          <button onClick={handleDislike} className={`px-4 py-2 text-sm font-medium transition ${isDisliked ? 'text-blue-400' : 'hover:bg-[#3f3f3f]'}`}>
+                              👎
+                          </button>
                        </div>
-                       <button onClick={handleDownload} disabled={loadingFormats} className="bg-[#272727] hover:bg-[#3f3f3f] border border-gray-700 px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition">{loadingFormats ? <span className="animate-spin">⏳</span> : '⬇ Download'}</button>
+                       {/* 🔥 UPDATED DOWNLOAD BUTTON */}
+                       <button onClick={handleDownloadClick} disabled={loadingFormats} className="bg-[#272727] hover:bg-[#3f3f3f] border border-gray-700 px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition">
+                          {loadingFormats ? <span className="animate-spin">⏳</span> : '⬇ Download'}
+                       </button>
                     </div>
                  </div>
                  
+                 <div className="mt-4 bg-[#272727]/50 border border-gray-800 p-3 rounded-xl text-sm text-gray-300 hover:bg-[#272727] transition cursor-pointer">
+                    {/* 🔥 UPDATED: Shows Real Views */}
+                    <p className="font-bold text-white mb-1">{views} views • Just now</p>
+                    <p>Watching on ScanVidz Premium. No Ads. No Tracking.</p>
+                 </div>
+
+                 {/* COMMENTS SECTION */}
                  <div className="mt-8 mb-10">
                     <h3 className="text-xl font-bold mb-4">{comments.length} Comments</h3>
                     

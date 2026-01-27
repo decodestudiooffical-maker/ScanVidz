@@ -175,7 +175,7 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db)):
 
 
 # -------------------------------------------------------------------------
-# 🔥 VIDEO APIS (UPDATED FOR AUDIO & DOWNLOAD FIX)
+# 🔥 VIDEO APIS (UPDATED FOR REAL STATS & AUDIO FIX)
 # -------------------------------------------------------------------------
 
 @app.get("/")
@@ -254,6 +254,7 @@ def search_videos(
     return {"status": "success", "results": results, "page": page, "next_page": page + 1}
 
 
+# 🔥 UPDATED FORMATS ENDPOINT: RETURNS REAL LIKES & SUBS 🔥
 @app.get("/formats")
 def get_formats(v: str):
     if not v: return {"status": "error", "message": "Video ID missing"}
@@ -271,6 +272,15 @@ def get_formats(v: str):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             
+            # 🔥 EXTRACT REAL STATS (Likes, Subs, Views)
+            real_meta = {
+                "likes": info.get('like_count', 0),
+                "views": format_views(info.get('view_count', 0)),
+                "subs": format_views(info.get('channel_follower_count', 0))
+            }
+            if real_meta["subs"] == "N/A" or real_meta["subs"] == "0": 
+                real_meta["subs"] = "Hidden"
+
             for f in info.get('formats', []):
                 if f.get('ext') in ['mp4', 'webm'] and f.get('protocol') in ['https', 'http']:
                     
@@ -310,11 +320,17 @@ def get_formats(v: str):
                 if f['height'] not in seen_heights:
                     unique_formats.append(f)
                     seen_heights.add(f['height'])
+            
+            # Return both formats AND metadata
+            return {
+                "status": "success", 
+                "formats": unique_formats, 
+                "title": info.get('title'),
+                "meta": real_meta # 🔥 Sending Real Data
+            }
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
-
-    return {"status": "success", "formats": unique_formats, "title": info.get('title')}
 
 
 # --- 5. DOWNLOAD ENDPOINT (FIXED: ROBUST FOR MOBILE/LAPTOP) ---
