@@ -10,7 +10,7 @@ import time
 import os
 import shutil
 import uuid
-import threading # 🔥 ADDED FOR SLEEP FIX
+import threading 
 
 # --- DATABASE IMPORTS ---
 from sqlalchemy import create_engine, Column, String, Integer, Float
@@ -48,7 +48,7 @@ except Exception as e:
     print("❌ Database Connection Failed:", e)
     Base = declarative_base() 
 
-# --- TABLE: USERS ---
+# --- TABLE 1: USERS ---
 class User(Base):
     __tablename__ = "users"
     id = Column(String, primary_key=True, index=True)
@@ -57,7 +57,7 @@ class User(Base):
     password = Column(String)
     joined = Column(String)
 
-# --- TABLE: VIDEO CACHE (For Super Fast Loading) ---
+# --- TABLE 2: VIDEO CACHE (For Super Fast Loading) ---
 class VideoCache(Base):
     __tablename__ = "video_cache"
     video_id = Column(String, primary_key=True, index=True)
@@ -66,6 +66,16 @@ class VideoCache(Base):
     subs = Column(String)
     views = Column(String)
     updated_at = Column(Float) # Stores time to refresh cache daily
+
+# --- TABLE 3: COMMENTS (🔥 NEW FEATURE) ---
+class Comment(Base):
+    __tablename__ = "comments"
+    id = Column(String, primary_key=True, index=True)
+    video_id = Column(String, index=True) # Links comment to a video
+    user_name = Column(String)
+    user_avatar = Column(String)
+    text = Column(String)
+    timestamp = Column(String)
 
 # Create Tables if not exist
 try:
@@ -178,6 +188,39 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db)):
     return {"status": "success", "user": user}
 
 # =================================================================
+# 🔥 NEW: COMMENTS APIs (GET & POST)
+# =================================================================
+
+class CommentModel(BaseModel):
+    video_id: str
+    user_name: str
+    user_avatar: str
+    text: str
+
+@app.post("/comments")
+def post_comment(comment: CommentModel, db: Session = Depends(get_db)):
+    """Save a new comment to the database"""
+    new_comment = Comment(
+        id=str(uuid.uuid4()),
+        video_id=comment.video_id,
+        user_name=comment.user_name,
+        user_avatar=comment.user_avatar,
+        text=comment.text,
+        timestamp="Just now" 
+    )
+    db.add(new_comment)
+    db.commit()
+    return {"status": "success", "comment": new_comment}
+
+@app.get("/comments")
+def get_comments(v: str, db: Session = Depends(get_db)):
+    """Fetch comments for a specific video"""
+    # Fetch comments for this video
+    comments = db.query(Comment).filter(Comment.video_id == v).all()
+    # Return reversed list (Newest first)
+    return {"status": "success", "comments": comments[::-1]}
+
+# =================================================================
 # 6. VIDEO API ENDPOINTS (CORE LOGIC)
 # =================================================================
 
@@ -185,7 +228,7 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db)):
 def home():
     return {"message": "ScanVidz Backend Running High Performance 🚀"}
 
-# 🔥 NEW: PING ENDPOINT (Part of Sleep Fix)
+# 🔥 PING ENDPOINT (Sleep Fix)
 @app.get("/ping")
 def ping_server():
     return {"status": "awake", "message": "I am alive!"}
@@ -319,6 +362,7 @@ def get_formats(v: str, db: Session = Depends(get_db)):
                     elif f.get('acodec') != 'none':
                         if f.get('ext') == 'webm': continue 
                         quality_label += " (Direct)"
+                        needs_merge = False
                     else: continue 
 
                     formats_list.append({

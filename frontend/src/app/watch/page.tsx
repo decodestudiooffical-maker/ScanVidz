@@ -18,9 +18,6 @@ function WatchContent() {
   const thumbnail = searchParams.get('thumbnail') || '';
   const duration = searchParams.get('duration') || '';
   
-  // Initial placeholders (Will be updated by Real Data)
-  const [views, setViews] = useState(searchParams.get('views') || 'Loading...');
-  
   // Channel Info Logic
   const rawChannel = searchParams.get('channel');
   const channelName = rawChannel && rawChannel !== 'undefined' ? rawChannel : 'ScanVidz Creator';
@@ -45,16 +42,18 @@ function WatchContent() {
   const [loadingFormats, setLoadingFormats] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  // 🔥 REAL ENGAGEMENT STATE (Updated from Backend)
+  // Engagement States (Real Data)
   const [likes, setLikes] = useState<string | number>("Loading..."); 
   const [isLiked, setIsLiked] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [subCount, setSubCount] = useState("Loading...");
+  const [views, setViews] = useState(searchParams.get('views') || 'Loading...');
   
-  // Comments Section States
+  // 🔥 REAL COMMENTS STATE (Updated)
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState('');
+  const [user, setUser] = useState<any>(null); // Logged in user info
   
   // Search Bar State
   const [searchQuery, setSearchQuery] = useState('');
@@ -64,7 +63,35 @@ function WatchContent() {
   const containerRef = useRef<HTMLDivElement>(null); 
 
   // ---------------------------------------------------------
-  // 3. KEYBOARD CONTROLS & LISTENERS
+  // 3. CHECK LOGIN STATUS & FETCH COMMENTS
+  // ---------------------------------------------------------
+  
+  // Check if user is logged in
+  useEffect(() => {
+      const storedUser = localStorage.getItem('scanvidz_user');
+      if (storedUser) {
+          try {
+              setUser(JSON.parse(storedUser));
+          } catch(e) { console.log("User Parse Error"); }
+      }
+  }, []);
+
+  // 🔥 Fetch Comments from Database when Video Loads
+  useEffect(() => {
+      if (videoId) {
+          fetch(`https://scanvidz-default.onrender.com/comments?v=${videoId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    setComments(data.comments);
+                }
+            })
+            .catch(err => console.log("Comments Fetch Error:", err));
+      }
+  }, [videoId]);
+
+  // ---------------------------------------------------------
+  // 4. KEYBOARD CONTROLS & LISTENERS
   // ---------------------------------------------------------
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -86,7 +113,7 @@ function WatchContent() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // 🔥 FULLSCREEN LISTENER
+  // FULLSCREEN LISTENER
   useEffect(() => {
       const handleFsChange = () => {
           if (document.fullscreenElement) {
@@ -104,19 +131,17 @@ function WatchContent() {
   }, []);
 
   // ---------------------------------------------------------
-  // 4. FETCH REAL DATA (The New Logic)
+  // 5. FETCH REAL METADATA & FORMATS
   // ---------------------------------------------------------
   useEffect(() => {
       if (videoId) {
           setLoadingFormats(true);
-          // Calling backend to get Formats + Real Metadata
           fetch(`https://scanvidz-default.onrender.com/formats?v=${videoId}`)
             .then(res => res.json())
             .then(data => {
                 if(data.status === 'success') {
                     setFormats(data.formats);
-                    
-                    // 🔥 UPDATE UI WITH REAL STATS
+                    // Update Real Stats
                     if(data.meta) {
                         setLikes(data.meta.likes);
                         setSubCount(data.meta.subs);
@@ -130,7 +155,7 @@ function WatchContent() {
   }, [videoId]);
 
   // ---------------------------------------------------------
-  // 5. SMART UP NEXT ALGORITHM
+  // 6. SMART UP NEXT ALGORITHM
   // ---------------------------------------------------------
   useEffect(() => {
       if (title) {
@@ -152,7 +177,7 @@ function WatchContent() {
   }, [title]);
 
   // ---------------------------------------------------------
-  // 6. AUTO PLAY NEXT LOGIC
+  // 7. AUTO PLAY NEXT LOGIC
   // ---------------------------------------------------------
   useEffect(() => {
       let timer: any;
@@ -174,34 +199,27 @@ function WatchContent() {
   }, [playerState, related]);
 
   // ---------------------------------------------------------
-  // 7. DOWNLOAD HANDLERS
+  // 8. HANDLERS (Download, Subscribe, Like)
   // ---------------------------------------------------------
   const handleDownloadClick = () => {
       if(formats.length > 0) {
           setShowDownload(true);
       } else {
-          // If formats haven't loaded yet (rare case)
-          alert("Loading formats... please wait a moment.");
+          alert("Loading formats... please wait.");
       }
   };
 
   const startDownload = (format: any) => {
       setShowDownload(false);
-      if (format.needs_merge) {
-          setToastMsg("⚡ Processing High Quality Video... Please wait (10-30s)");
-          setTimeout(() => setToastMsg(null), 10000);
-      } else {
-          setToastMsg("Download started in background! 🚀");
-          setTimeout(() => setToastMsg(null), 5000); 
-      }
+      setToastMsg("Download started! 🚀");
+      setTimeout(() => setToastMsg(null), 5000); 
+      
       const isMerge = format.needs_merge ? "true" : "false";
+      // Direct link to backend download
       const url = `https://scanvidz-default.onrender.com/download?v=${videoId}&format_id=${format.format_id}&merge=${isMerge}`;
       window.open(url, '_blank'); 
   };
 
-  // ---------------------------------------------------------
-  // 8. ENGAGEMENT HANDLERS
-  // ---------------------------------------------------------
   const handleSubscribe = () => {
       setIsSubscribed(!isSubscribed);
       if(!isSubscribed) {
@@ -212,7 +230,6 @@ function WatchContent() {
 
   const handleLike = () => {
       if (isLiked) {
-          // Safely decrement if it's a number
           setLikes(prev => (typeof prev === 'number' ? prev - 1 : prev));
           setIsLiked(false);
       } else {
@@ -234,17 +251,38 @@ function WatchContent() {
       }
   };
 
-  const handleComment = (e: React.FormEvent) => {
+  // 🔥 UPDATED: REAL COMMENT HANDLER (Connects to DB)
+  const handleComment = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!newComment.trim()) return;
-      const newCmt = {
-          user: "You",
-          text: newComment,
-          avatar: "https://ui-avatars.com/api/?name=You&background=random",
-          time: "Just now"
+      
+      // Check Login
+      if (!user) {
+          alert("Please Login to comment! (Click 'U' icon at top)");
+          return;
+      }
+
+      const commentData = {
+          video_id: videoId,
+          user_name: user.name,
+          user_avatar: `https://ui-avatars.com/api/?name=${user.name}&background=random`,
+          text: newComment
       };
-      setComments([newCmt, ...comments]);
+
+      // 1. Optimistic Update (Show instantly in UI)
+      setComments([commentData, ...comments]);
       setNewComment("");
+
+      // 2. Send to Backend Database
+      try {
+          await fetch('https://scanvidz-default.onrender.com/comments', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(commentData)
+          });
+      } catch (err) {
+          console.log("Failed to save comment", err);
+      }
   };
 
   const handleHeaderSearch = (e: React.FormEvent) => {
@@ -264,7 +302,7 @@ function WatchContent() {
       setTimeout(() => setPlay(true), 100); 
   };
 
-  // 🔥 CUSTOM FULLSCREEN FUNCTION (Rotates Mobile Screen)
+  // CUSTOM FULLSCREEN FUNCTION
   const toggleFullscreen = () => {
       if (containerRef.current) {
           if (!document.fullscreenElement) {
@@ -283,11 +321,15 @@ function WatchContent() {
       }
   };
 
-  // 🔥 PLAYER LOGIC
+  // PLAYER LOGIC
   const onPlayerReady = (event: any) => {
       playerRef.current = event.target;
+      
+      // Auto-play Muted
       event.target.mute();
       event.target.playVideo();
+      
+      // Auto-Unmute Attempt
       setTimeout(() => {
           event.target.unMute(); 
       }, 1000);
@@ -295,6 +337,7 @@ function WatchContent() {
 
   const onPlayerStateChange = (event: any) => {
       setPlayerState(event.data);
+      
       if (event.data === 1) { 
          const player = event.target;
          player.isMuted().then((muted: boolean) => {
@@ -338,7 +381,7 @@ function WatchContent() {
            {/* --- LEFT SIDE: PLAYER & INFO --- */}
            <div className="flex-1 p-4 lg:p-6 lg:pr-0 overflow-y-auto">
               
-              {/* 🔥 VIDEO PLAYER CONTAINER WITH FULLSCREEN REF */}
+              {/* VIDEO PLAYER CONTAINER */}
               <div 
                 ref={containerRef} 
                 className={`w-full bg-black relative group border-gray-800 overflow-hidden ${isFullscreenMode ? 'fixed inset-0 z-[100] h-screen w-screen border-none rounded-none' : 'aspect-video rounded-xl border shadow-2xl'}`}
@@ -370,12 +413,12 @@ function WatchContent() {
                           }}
                        />
                        
-                       {/* 🔥 SMART SHIELDS */}
+                       {/* Smart Shields */}
                        <div className="absolute top-0 right-0 z-[60]" style={{ width: '25%', maxWidth: '160px', height: '20%', maxHeight: '80px', pointerEvents: 'auto', background: 'transparent' }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}></div>
                        <div className="absolute bottom-0 right-0 z-[60]" style={{ width: '20%', maxWidth: '130px', height: '20%', maxHeight: '60px', pointerEvents: 'auto', background: 'transparent' }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}></div>
                        <div className="absolute top-0 left-0 z-[60]" style={{ width: '40%', height: '20%', maxHeight: '70px', pointerEvents: 'auto', background: 'transparent' }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}></div>
 
-                       {/* 🔥 PAUSE OVERLAY */}
+                       {/* Pause Overlay */}
                        {playerState === 2 && (
                            <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black via-black/90 to-transparent z-50 flex items-center justify-center pb-4 pointer-events-none">
                                <div className="flex flex-col items-center">
@@ -387,7 +430,7 @@ function WatchContent() {
                            </div>
                        )}
 
-                       {/* END SCREEN */}
+                       {/* End Screen */}
                        {playerState === 0 && related.length > 0 && (
                            <div className="absolute inset-0 bg-black/95 z-30 flex flex-col items-center justify-center text-center p-6">
                                <h3 className="text-gray-400 text-sm uppercase tracking-widest mb-2">Up Next in {countdown}s</h3>
@@ -405,7 +448,7 @@ function WatchContent() {
                        )}
                     </div>
                  ) : (
-                    // THUMBNAIL
+                    // Thumbnail
                     <div className="absolute inset-0 flex items-center justify-center bg-cover bg-center cursor-pointer" style={{backgroundImage: `url(${thumbnail})`}} onClick={() => setPlay(true)}>
                        <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition"></div>
                        <div className="w-20 h-20 bg-red-600/90 hover:bg-red-600 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(220,38,38,0.5)] hover:scale-110 transition z-10 backdrop-blur-sm">
@@ -421,7 +464,6 @@ function WatchContent() {
                  <div className="flex justify-between items-start gap-4">
                      <h1 className="text-xl md:text-2xl font-bold line-clamp-2 leading-snug flex-1">{title}</h1>
                      
-                     {/* 🔥 CUSTOM FULLSCREEN BUTTON */}
                      <button 
                         onClick={toggleFullscreen}
                         className="p-2.5 bg-[#272727] hover:bg-[#3f3f3f] rounded-full border border-gray-700 transition flex-shrink-0"
@@ -454,42 +496,41 @@ function WatchContent() {
 
                     <div className="flex items-center gap-2">
                        <div className="bg-[#272727] flex items-center rounded-full overflow-hidden border border-gray-700">
-                          <button onClick={handleLike} className={`px-4 py-2 flex items-center gap-2 text-sm font-medium border-r border-gray-600 transition ${isLiked ? 'text-blue-400' : 'hover:bg-[#3f3f3f]'}`}>
-                              👍 {likes}
-                          </button>
-                          <button onClick={handleDislike} className={`px-4 py-2 text-sm font-medium transition ${isDisliked ? 'text-blue-400' : 'hover:bg-[#3f3f3f]'}`}>
-                              👎
-                          </button>
+                          <button onClick={handleLike} className={`px-4 py-2 flex items-center gap-2 text-sm font-medium border-r border-gray-600 transition ${isLiked ? 'text-blue-400' : 'hover:bg-[#3f3f3f]'}`}>👍 {likes}</button>
+                          <button onClick={handleDislike} className={`px-4 py-2 text-sm font-medium transition ${isDisliked ? 'text-blue-400' : 'hover:bg-[#3f3f3f]'}`}>👎</button>
                        </div>
-                       {/* 🔥 UPDATED DOWNLOAD BUTTON */}
-                       <button onClick={handleDownloadClick} disabled={loadingFormats} className="bg-[#272727] hover:bg-[#3f3f3f] border border-gray-700 px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition">
-                          {loadingFormats ? <span className="animate-spin">⏳</span> : '⬇ Download'}
-                       </button>
+                       <button onClick={handleDownloadClick} disabled={loadingFormats} className="bg-[#272727] hover:bg-[#3f3f3f] border border-gray-700 px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition">{loadingFormats ? <span className="animate-spin">⏳</span> : '⬇ Download'}</button>
                     </div>
                  </div>
                  
                  <div className="mt-4 bg-[#272727]/50 border border-gray-800 p-3 rounded-xl text-sm text-gray-300 hover:bg-[#272727] transition cursor-pointer">
-                    {/* 🔥 UPDATED: Shows Real Views */}
                     <p className="font-bold text-white mb-1">{views} views • Just now</p>
                     <p>Watching on ScanVidz Premium. No Ads. No Tracking.</p>
                  </div>
-
-                 {/* COMMENTS SECTION */}
+                 
+                 {/* 🔥 REAL COMMENTS SECTION (Database Connected) */}
                  <div className="mt-8 mb-10">
                     <h3 className="text-xl font-bold mb-4">{comments.length} Comments</h3>
                     
                     <form onSubmit={handleComment} className="flex gap-4 mb-8">
-                        <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center font-bold flex-shrink-0">U</div>
+                        <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center font-bold flex-shrink-0 text-white">
+                            {user ? user.name.charAt(0).toUpperCase() : "U"}
+                        </div>
                         <div className="flex-1">
                             <input 
                                 type="text" 
                                 className="w-full bg-transparent border-b border-gray-700 focus:border-white outline-none py-2 text-sm text-white placeholder-gray-500 transition"
-                                placeholder="Add a comment..."
+                                placeholder={user ? "Add a comment..." : "Please login to comment"}
                                 value={newComment}
                                 onChange={(e) => setNewComment(e.target.value)}
+                                disabled={!user}
                             />
                             <div className="flex justify-end mt-2">
-                                <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-full text-sm font-bold disabled:opacity-50" disabled={!newComment.trim()}>
+                                <button 
+                                    type="submit" 
+                                    className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-full text-sm font-bold disabled:opacity-50 transition" 
+                                    disabled={!newComment.trim() || !user}
+                                >
                                     Comment
                                 </button>
                             </div>
@@ -497,18 +538,22 @@ function WatchContent() {
                     </form>
 
                     <div className="space-y-6">
-                        {comments.map((c, i) => (
+                        {comments.length > 0 ? comments.map((c, i) => (
                             <div key={i} className="flex gap-4">
-                                <img src={c.avatar} className="w-10 h-10 rounded-full" />
+                                <img src={c.user_avatar || `https://ui-avatars.com/api/?name=${c.user_name}&background=random`} className="w-10 h-10 rounded-full" />
                                 <div>
                                     <div className="flex items-center gap-2">
-                                        <span className="font-bold text-sm">{c.user}</span>
-                                        <span className="text-xs text-gray-500">{c.time}</span>
+                                        <span className="font-bold text-sm">{c.user_name}</span>
+                                        <span className="text-xs text-gray-500">{c.timestamp || "Just now"}</span>
                                     </div>
                                     <p className="text-sm mt-1 text-gray-200">{c.text}</p>
                                 </div>
                             </div>
-                        ))}
+                        )) : (
+                            <div className="text-center text-gray-500 text-sm py-6">
+                                No comments yet. Be the first to share your thoughts! 🚀
+                            </div>
+                        )}
                     </div>
                  </div>
               </div>
@@ -590,7 +635,7 @@ function WatchContent() {
   );
 }
 
-// --- SUSPENSE EXPORT (Prevents hydration errors) ---
+// --- SUSPENSE EXPORT ---
 export default function WatchPage() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-black text-white flex items-center justify-center">Loading Player...</div>}>
