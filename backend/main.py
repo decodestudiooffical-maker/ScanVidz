@@ -10,6 +10,7 @@ import time
 import os
 import shutil
 import uuid
+import threading # 🔥 ADDED FOR SLEEP FIX
 
 # --- DATABASE IMPORTS ---
 from sqlalchemy import create_engine, Column, String, Integer, Float
@@ -184,6 +185,11 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db)):
 def home():
     return {"message": "ScanVidz Backend Running High Performance 🚀"}
 
+# 🔥 NEW: PING ENDPOINT (Part of Sleep Fix)
+@app.get("/ping")
+def ping_server():
+    return {"status": "awake", "message": "I am alive!"}
+
 @app.get("/suggestions")
 def get_suggestions(q: str = Query(None)):
     if not q: return []
@@ -313,7 +319,6 @@ def get_formats(v: str, db: Session = Depends(get_db)):
                     elif f.get('acodec') != 'none':
                         if f.get('ext') == 'webm': continue 
                         quality_label += " (Direct)"
-                        needs_merge = False
                     else: continue 
 
                     formats_list.append({
@@ -418,6 +423,24 @@ def get_trending():
         return search_videos(q="viral", limit=20)
     
     return {"status": "success", "videos": results}
+
+# 🔥 AUTO KEEP-ALIVE SYSTEM (BACKGROUND THREAD) 🔥
+def keep_server_alive():
+    """Pings the server every 14 minutes to prevent sleep"""
+    url = "https://scanvidz-default.onrender.com/ping" # Change if using different URL
+    print("⏰ Keep-Alive System Started...")
+    while True:
+        try:
+            time.sleep(840) # 14 minutes (Render sleeps at 15m)
+            print(f"⏰ Pinging self at {url}...")
+            requests.get(url)
+        except Exception as e:
+            print(f"⚠️ Keep-Alive Ping Failed: {e}")
+
+# Start Keep-Alive on Startup
+@app.on_event("startup")
+async def startup_event():
+    threading.Thread(target=keep_server_alive, daemon=True).start()
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
