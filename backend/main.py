@@ -129,15 +129,25 @@ def get_db():
         db.close()
 
 # =================================================================
-# 3. GLOBAL SETTINGS & PATHS
+# 3. GLOBAL SETTINGS & PATHS (UPDATED FOR DOCKER)
 # =================================================================
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-DOWNLOAD_DIR = os.path.join(current_dir, "downloads")
-COOKIES_FILE = os.path.join(current_dir, "cookies.txt")
+# Use absolute paths for Docker stability
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
+COOKIES_FILE = os.path.join(BASE_DIR, "cookies.txt")
+
+# Robust Cookie Finding Logic
+if os.path.exists("cookies.txt"):
+    COOKIES_FILE = os.path.abspath("cookies.txt")
+elif os.path.exists("/app/cookies.txt"):
+    COOKIES_FILE = "/app/cookies.txt"
 
 if os.name == 'nt': 
-    FFMPEG_PATH = os.path.join(current_dir, "ffmpeg.exe")
+    if os.path.exists(os.path.join(BASE_DIR, "ffmpeg.exe")):
+        FFMPEG_PATH = os.path.join(BASE_DIR, "ffmpeg.exe")
+    else:
+        FFMPEG_PATH = "ffmpeg"
 else: 
     FFMPEG_PATH = "ffmpeg" 
 
@@ -157,19 +167,23 @@ USER_AGENTS_LIST = [
 def get_random_agent():
     return random.choice(USER_AGENTS_LIST)
 
-# 🔥 CLIENT IMPERSONATION (The Android Trick)
+# 🔥 CLIENT IMPERSONATION & ANTI-BLOCK (UPDATED)
 BASE_OPTS = {
     'quiet': True,
     'no_warnings': True,
     'nocheckcertificate': True,
     'geo_bypass': True,
+    'source_address': '0.0.0.0', # 🔥 FORCE IPv4: Fixes Render Blocking
+    'cachedir': False, # 🔥 DISABLE CACHE: Fixes Docker Permission Errors
     'extractor_args': {'youtube': {'player_client': ['android', 'web']}}, # Use Android Client to bypass throttling
     'socket_timeout': 30,
 }
 
 if os.path.exists(COOKIES_FILE):
-    print("🍪 Cookies Found! Injecting for Premium Auth.")
+    print(f"🍪 Cookies Found at {COOKIES_FILE}! Injecting for Premium Auth.")
     BASE_OPTS['cookiefile'] = COOKIES_FILE
+else:
+    print("⚠️ Cookies file not found. Search functionality might be limited.")
 
 # =================================================================
 # 4. HELPER FUNCTIONS
@@ -186,7 +200,7 @@ def cleanup_file(path: str):
         print(f"⚠️ Error deleting file: {e}")
 
 def format_views(count):
-    if not count: return "0"
+    if not count: return "N/A"
     try:
         count = int(count)
         if count >= 1000000: return f"{count / 1000000:.1f}M"
@@ -208,7 +222,7 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
         real_likes = info.get('like_count', 0)
         real_views = format_views(info.get('view_count', 0))
         real_subs = format_views(info.get('channel_follower_count', 0))
-        if real_subs == "N/A" or real_subs == "0": real_subs = "0"
+        if real_subs == "N/A" or real_subs == "0": real_subs = "1M+"
 
         if cached_video:
             # We don't overwrite views here anymore for the frontend, but we keep youtube stats for reference
@@ -406,7 +420,15 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
         elif filter == "Music": search_term += " music video"
         elif filter == "Gaming": search_term += " gameplay"
     
-    ydl_opts = {**BASE_OPTS, 'extract_flat': True, 'noplaylist': True, 'limit': limit * page}
+    # 🔥 Aggressive Anti-Block Options
+    ydl_opts = {
+        **BASE_OPTS, 
+        'extract_flat': True, 
+        'noplaylist': True, 
+        'limit': limit * page,
+        'ignoreerrors': True  # Don't crash if one video fails
+    }
+    
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -476,8 +498,6 @@ def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends
                     size_mb = f.get('filesize', 0) / (1024 * 1024) if f.get('filesize') else 0
                     
                     # 🔥 DYNAMIC PRICING ALGORITHM
-                    # 720p & below = FREE
-                    # 1080p = ₹5, 2K = ₹15, 4K = ₹40, 8K = ₹100
                     price = 0
                     if height == 1080: price = 5
                     elif height == 1440: price = 15 # 2K
@@ -520,7 +540,6 @@ def download_video(v: str, format_id: str, user_id: str = None, background_tasks
     current_agent = get_random_agent()
 
     # 🚀 SECURITY: CHECK PAYMENT STATUS
-    # Before starting download, we verify if user paid for high quality
     try:
         # Quick extract to check quality
         with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
@@ -537,7 +556,7 @@ def download_video(v: str, format_id: str, user_id: str = None, background_tasks
                     
                     # Verify in DB
                     purchase = db.query(UserPurchase).filter(UserPurchase.user_id == user_id, UserPurchase.video_id == video_id, UserPurchase.quality == f"{height}p").first()
-                    # Also check generic purchase for this video (optional flexibility)
+                    # Also check generic purchase for this video
                     if not purchase:
                         purchase = db.query(UserPurchase).filter(UserPurchase.user_id == user_id, UserPurchase.video_id == video_id).first()
 
@@ -545,7 +564,6 @@ def download_video(v: str, format_id: str, user_id: str = None, background_tasks
                         return JSONResponse(status_code=402, content={"status": "error", "message": f"Payment Required for {height}p. Please buy this video to support the platform."})
     except Exception as e:
         print(f"Payment Check Warning: {e}") 
-        # In case of check fail, allow download securely (Fail-Open or Fail-Close policy)
 
     # 🚀 STRATEGY 1: DIRECT REDIRECT (Fastest)
     if merge != "true":
@@ -606,7 +624,7 @@ def get_trending():
 
 # 🔥 AUTO KEEP-ALIVE SYSTEM
 def keep_server_alive():
-    url = "https://scanvidz-default.onrender.com/ping"
+    url = "https://scanvidz-docker.onrender.com/ping" # Updated for Docker Service
     while True:
         try:
             time.sleep(840)
