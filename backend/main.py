@@ -151,6 +151,41 @@ def get_avatar(name):
     safe_name = (name or "U").replace(" ", "+")
     return f"https://ui-avatars.com/api/?background=random&color=fff&name={safe_name}&size=128"
 
+# 🔥 NEW: Background Task Function (The Magic Fix)
+# This moves the DB update to background, unblocking the UI instantly
+def update_video_cache_background(video_id: str, info: dict, db_session_factory):
+    """Updates database in background so user doesn't wait"""
+    db = db_session_factory()
+    try:
+        cached_video = db.query(VideoCache).filter(VideoCache.video_id == video_id).first()
+        
+        real_likes = info.get('like_count', 0)
+        real_views = format_views(info.get('view_count', 0))
+        real_subs = format_views(info.get('channel_follower_count', 0))
+        if real_subs == "N/A" or real_subs == "0": real_subs = "1M+"
+
+        if cached_video:
+            cached_video.likes = str(real_likes)
+            cached_video.views = str(real_views)
+            cached_video.subs = str(real_subs)
+            cached_video.updated_at = time.time()
+        else:
+            new_cache = VideoCache(
+                video_id=video_id,
+                title=info.get('title'),
+                likes=str(real_likes),
+                views=str(real_views),
+                subs=str(real_subs),
+                updated_at=time.time()
+            )
+            db.add(new_cache)
+        db.commit()
+        print(f"✅ Background Cache Updated for {video_id}")
+    except Exception as e:
+        print(f"⚠️ Background Cache Error: {e}")
+    finally:
+        db.close()
+
 # =================================================================
 # 5. AUTHENTICATION ENDPOINTS
 # =================================================================
@@ -192,7 +227,7 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db)):
     return {"status": "success", "user": user}
 
 # =================================================================
-# 🔥 NEW: COMMENTS APIs (GET & POST)
+# 6. COMMENTS ENDPOINTS
 # =================================================================
 
 class CommentModel(BaseModel):
@@ -225,7 +260,7 @@ def get_comments(v: str, db: Session = Depends(get_db)):
     return {"status": "success", "comments": comments[::-1]}
 
 # =================================================================
-# 6. VIDEO API ENDPOINTS (CORE LOGIC)
+# 7. VIDEO API ENDPOINTS (CORE LOGIC)
 # =================================================================
 
 @app.get("/")
@@ -286,8 +321,7 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
     
     return {"status": "success", "results": results, "page": page}
 
-# 🔥 NEW: METADATA API (Enables Parallel Loading for Likes/Subs)
-# This allows the frontend to fetch Likes/Subs separately from download formats
+# 🔥 META API (Separated for Parallel Loading)
 @app.get("/meta")
 def get_meta(v: str, db: Session = Depends(get_db)):
     if not v: return {"status": "error"}
@@ -322,9 +356,9 @@ def get_meta(v: str, db: Session = Depends(get_db)):
     except:
         return {"status": "error"}
 
-# 🔥 SUPER FAST FORMATS API (DB CACHING + REAL DATA)
+# 🔥 UPDATED FORMATS API: Background Task Implemented (Loading Formats Fix)
 @app.get("/formats")
-def get_formats(v: str, db: Session = Depends(get_db)):
+def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if not v: return {"status": "error"}
     
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
@@ -355,36 +389,16 @@ def get_formats(v: str, db: Session = Depends(get_db)):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             
-            # If meta wasn't in cache, extract it now
+            # 🔥 MAGIC FIX: Send DB update to Background (Don't make user wait!)
+            background_tasks.add_task(update_video_cache_background, video_id, info, SessionLocal)
+            
+            # If meta wasn't in cache, create temporary one for response
             if not real_meta:
                 real_meta = {
                     "likes": info.get('like_count', 0),
                     "views": format_views(info.get('view_count', 0)),
-                    "subs": format_views(info.get('channel_follower_count', 0))
+                    "subs": "1M+" # Show placeholder, real subs will load via /meta
                 }
-                if real_meta["subs"] == "N/A" or real_meta["subs"] == "0": 
-                    real_meta["subs"] = "1M+" # Fallback
-                
-                # SAVE TO DATABASE FOR NEXT TIME
-                if cached_video:
-                    # Update old cache
-                    cached_video.likes = str(real_meta["likes"])
-                    cached_video.views = str(real_meta["views"])
-                    cached_video.subs = str(real_meta["subs"])
-                    cached_video.updated_at = current_time
-                else:
-                    # Create new cache entry
-                    new_cache = VideoCache(
-                        video_id=video_id,
-                        title=info.get('title'),
-                        likes=str(real_meta["likes"]),
-                        views=str(real_meta["views"]),
-                        subs=str(real_meta["subs"]),
-                        updated_at=current_time
-                    )
-                    db.add(new_cache)
-                
-                db.commit() # Save to Neon DB
 
             # Process Formats (Always fresh to avoid expire links)
             for f in info.get('formats', []):
@@ -433,13 +447,13 @@ def get_formats(v: str, db: Session = Depends(get_db)):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# 🔥 UPDATED DOWNLOAD API: STREAMING + HEADER FIX (SOLVES 0 MB ISSUE)
+# 🔥 DOWNLOAD API: STREAMING + HEADERS (Fixed 0MB & Timeout)
 @app.get("/download")
 def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, merge: str = "false"):
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     
-    # 1. Direct Download (Fastest, no server processing)
+    # 1. Direct Download
     if merge != "true":
         try:
             with yt_dlp.YoutubeDL({'format': 'best[ext=mp4]'}) as ydl:
@@ -448,77 +462,60 @@ def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, me
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    # 2. High Quality Streaming (Server processes and streams instantly)
-    # 🔥 FIXED: Added HEADERS to prevent 403 Forbidden (0 MB)
+    # 2. High Quality Streaming
     try:
         def stream_generator():
-            # Get the direct URLs for video and audio
             ydl_opts = {
                 **COMMON_OPTS,
                 'format': f"{format_id}+bestaudio[ext=m4a]/bestaudio/best"
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
-                
-                # Extract specific stream URLs
                 formats = info.get('formats', [])
                 video_fmt = next((f for f in formats if f['format_id'] == format_id), None)
                 audio_fmt = next((f for f in formats if f.get('acodec') != 'none' and f.get('vcodec') == 'none'), None)
-
-                if not video_fmt: 
-                    video_fmt = next((f for f in formats if f['ext'] == 'mp4'), None)
+                if not video_fmt: video_fmt = next((f for f in formats if f['ext'] == 'mp4'), None)
                 
                 v_url = video_fmt['url'] if video_fmt else None
                 a_url = audio_fmt['url'] if audio_fmt else None
 
-            if not v_url:
-                raise Exception("Could not find video stream")
+            if not v_url: raise Exception("No video URL")
 
-            # 🔥 FFmpeg Command with HEADERS [Critically Important for 0 MB Fix]
+            # 🔥 FFmpeg Command with HEADERS
             cmd = [
                 FFMPEG_PATH,
                 '-loglevel', 'error',
-                '-user_agent', USER_AGENT, # 👈 THIS PREVENTS 0 MB ERROR
+                '-user_agent', USER_AGENT,
                 '-i', v_url,
             ]
-            
             if a_url:
-                cmd.extend(['-headers', f'User-Agent: {USER_AGENT}']) 
+                cmd.extend(['-user_agent', USER_AGENT]) 
                 cmd.extend(['-i', a_url])
             
             cmd.extend([
-                '-c:v', 'copy',       # Copy video stream (No re-encoding = Super Fast)
-                '-c:a', 'aac',        # Ensure audio is AAC
-                '-movflags', 'frag_keyframe+empty_moov', # Essential for streaming MP4
-                '-f', 'mp4',          # Output format
-                '-preset', 'ultrafast', # Max speed
-                'pipe:1'              # Output to stdout
+                '-c:v', 'copy', '-c:a', 'aac',
+                '-movflags', 'frag_keyframe+empty_moov',
+                '-f', 'mp4', '-preset', 'ultrafast',
+                'pipe:1'
             ])
 
-            # Start FFmpeg process
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=10**7)
 
-            # Yield data chunks
             while True:
-                chunk = process.stdout.read(64 * 1024) # 64KB chunks
-                if not chunk:
-                    break
+                chunk = process.stdout.read(64 * 1024)
+                if not chunk: break
                 yield chunk
             
-            process.stdout.close()
-            process.wait()
+            process.stdout.close(); process.wait()
 
         return StreamingResponse(
             stream_generator(),
             media_type="video/mp4",
-            headers={
-                "Content-Disposition": f'attachment; filename="ScanVidz_{video_id}.mp4"'
-            }
+            headers={"Content-Disposition": f'attachment; filename="ScanVidz_{video_id}.mp4"'}
         )
 
     except Exception as e:
         print(f"Stream Error: {e}")
-        # Fallback to direct download if streaming fails
         return download_video(v, format_id, background_tasks, merge="false")
 
 @app.get("/trending")
