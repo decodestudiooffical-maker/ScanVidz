@@ -129,20 +129,15 @@ def get_db():
         db.close()
 
 # =================================================================
-# 3. GLOBAL SETTINGS & PATHS (UPDATED FOR DOCKER)
+# 3. GLOBAL SETTINGS & PATHS
 # =================================================================
 
-# Use absolute paths for Docker stability
+# Use absolute paths for stability
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
 COOKIES_FILE = os.path.join(BASE_DIR, "cookies.txt")
 
-# Robust Cookie Finding Logic
-if os.path.exists("cookies.txt"):
-    COOKIES_FILE = os.path.abspath("cookies.txt")
-elif os.path.exists("/app/cookies.txt"):
-    COOKIES_FILE = "/app/cookies.txt"
-
+# Standard FFmpeg check
 if os.name == 'nt': 
     if os.path.exists(os.path.join(BASE_DIR, "ffmpeg.exe")):
         FFMPEG_PATH = os.path.join(BASE_DIR, "ffmpeg.exe")
@@ -167,14 +162,12 @@ USER_AGENTS_LIST = [
 def get_random_agent():
     return random.choice(USER_AGENTS_LIST)
 
-# 🔥 CLIENT IMPERSONATION & ANTI-BLOCK (UPDATED)
+# 🔥 CLIENT IMPERSONATION (Standard Python Settings)
 BASE_OPTS = {
     'quiet': True,
     'no_warnings': True,
     'nocheckcertificate': True,
     'geo_bypass': True,
-    'source_address': '0.0.0.0', # 🔥 FORCE IPv4: Fixes Render Blocking
-    'cachedir': False, # 🔥 DISABLE CACHE: Fixes Docker Permission Errors
     'extractor_args': {'youtube': {'player_client': ['android', 'web']}}, # Use Android Client to bypass throttling
     'socket_timeout': 30,
 }
@@ -200,7 +193,7 @@ def cleanup_file(path: str):
         print(f"⚠️ Error deleting file: {e}")
 
 def format_views(count):
-    if not count: return "0"
+    if not count: return "N/A"
     try:
         count = int(count)
         if count >= 1000000: return f"{count / 1000000:.1f}M"
@@ -476,125 +469,16 @@ def get_meta(v: str, user_id: str = None, db: Session = Depends(get_db)):
         }
     }
 
-# 🔥 FORMATS API
+# 🔥 FORMATS API (DISABLED FOR MAINTENANCE)
 @app.get("/formats")
-def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    if not v: return {"status": "error"}
-    video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
-    video_url = f"https://www.youtube.com/watch?v={video_id}"
+def get_formats(v: str):
+    # Returns empty so frontend shows 'Download unavailable' or spinner stops
+    return {"status": "success", "formats": []} 
 
-    current_agent = get_random_agent()
-    ydl_opts = BASE_OPTS.copy()
-    ydl_opts['http_headers'] = {'User-Agent': current_agent}
-    formats_list = []
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_url, download=False)
-            background_tasks.add_task(update_video_cache_background, video_id, info, SessionLocal)
-            
-            for f in info.get('formats', []):
-                if f.get('ext') in ['mp4', 'webm'] and f.get('protocol') in ['https', 'http']:
-                    height = f.get('height') or 0
-                    if height < 144: continue
-                    size_mb = f.get('filesize', 0) / (1024 * 1024) if f.get('filesize') else 0
-                    
-                    price = 0
-                    if height == 1080: price = 5
-                    elif height == 1440: price = 15 
-                    elif height == 2160: price = 40 
-                    elif height == 4320: price = 100 
-                    
-                    quality_label = f"{height}p"
-                    if price > 0: quality_label += f" (Premium ₹{price})"
-                    else: quality_label += " (Free)"
-
-                    needs_merge = height >= 1080
-                    formats_list.append({"format_id": f['format_id'], "quality": quality_label, "ext": "mp4", "size": f"{size_mb:.1f} MB" if size_mb > 0 else "High Quality", "height": height, "needs_merge": needs_merge, "price": price})
-            
-            formats_list.sort(key=lambda x: x['height'], reverse=True)
-            unique_formats = []
-            seen = set()
-            for f in formats_list:
-                if f['height'] not in seen: unique_formats.append(f); seen.add(f['height'])
-            
-            return {"status": "success", "formats": unique_formats, "title": info.get('title')}
-    except Exception as e: return {"status": "error", "message": str(e)}
-
-# =================================================================
-# 🔥 10. DOWNLOAD API (11-in-1 Engine + PAYMENT WALL)
-# =================================================================
-
+# 🔥 DOWNLOAD API (DISABLED FOR MAINTENANCE)
 @app.get("/download")
-def download_video(v: str, format_id: str, user_id: str = None, background_tasks: BackgroundTasks = None, merge: str = "false", db: Session = Depends(get_db)):
-    video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
-    video_url = f"https://www.youtube.com/watch?v={video_id}"
-    
-    current_agent = get_random_agent()
-
-    # 🚀 SECURITY: CHECK PAYMENT STATUS
-    try:
-        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-            info = ydl.extract_info(video_url, download=False)
-            target_format = next((f for f in info['formats'] if f['format_id'] == format_id), None)
-            
-            if target_format:
-                height = target_format.get('height', 0)
-                if height > 720: 
-                    if not user_id:
-                        return JSONResponse(status_code=401, content={"status": "error", "message": "Login Required for Premium Download"})
-                    
-                    purchase = db.query(UserPurchase).filter(UserPurchase.user_id == user_id, UserPurchase.video_id == video_id, UserPurchase.quality == f"{height}p").first()
-                    if not purchase:
-                        purchase = db.query(UserPurchase).filter(UserPurchase.user_id == user_id, UserPurchase.video_id == video_id).first()
-
-                    if not purchase:
-                        return JSONResponse(status_code=402, content={"status": "error", "message": f"Payment Required for {height}p. Please buy this video to support the platform."})
-    except Exception as e:
-        print(f"Payment Check Warning: {e}") 
-
-    # 🚀 STRATEGY 1: DIRECT REDIRECT (Fastest)
-    if merge != "true":
-        try:
-            opts = BASE_OPTS.copy()
-            opts['http_headers'] = {'User-Agent': current_agent}
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(video_url, download=False)
-                target_url = next((f['url'] for f in info['formats'] if f['format_id'] == format_id), info.get('url'))
-                return RedirectResponse(url=target_url)
-        except: pass
-
-    # 🚀 STRATEGY 2: RESILIENT STREAMING (Secure Pipe)
-    try:
-        def stream_generator():
-            opts = BASE_OPTS.copy()
-            opts['format'] = f"{format_id}+bestaudio[ext=m4a]/bestaudio/best"
-            opts['http_headers'] = {'User-Agent': current_agent}
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(video_url, download=False)
-                formats = info.get('formats', [])
-                video_fmt = next((f for f in formats if f['format_id'] == format_id), None)
-                audio_fmt = next((f for f in formats if f.get('acodec') != 'none' and f.get('vcodec') == 'none'), None)
-                if not video_fmt: video_fmt = next((f for f in formats if f['ext'] == 'mp4'), None)
-                v_url = video_fmt['url'] if video_fmt else None
-                a_url = audio_fmt['url'] if audio_fmt else None
-
-            if not v_url: raise Exception("No URL")
-
-            cmd = [FFMPEG_PATH, '-loglevel', 'error', '-headers', f'User-Agent: {current_agent}', '-i', v_url]
-            if a_url: cmd.extend(['-headers', f'User-Agent: {current_agent}']); cmd.extend(['-i', a_url])
-            cmd.extend(['-c:v', 'copy', '-c:a', 'aac', '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', '-preset', 'ultrafast', 'pipe:1'])
-
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=10**7)
-            while True:
-                chunk = process.stdout.read(64 * 1024)
-                if not chunk: break
-                yield chunk
-            process.stdout.close(); process.wait()
-
-        return StreamingResponse(stream_generator(), media_type="video/mp4", headers={"Content-Disposition": f'attachment; filename="ScanVidz_{video_id}.mp4"'})
-    except Exception as e:
-        return {"status": "error", "message": "Download failed."}
+def download_video():
+    return {"status": "error", "message": "Downloads disabled temporarily for server maintenance."}
 
 @app.get("/trending")
 def get_trending():
@@ -616,7 +500,7 @@ def get_trending():
 
 # 🔥 AUTO KEEP-ALIVE SYSTEM
 def keep_server_alive():
-    url = "https://scanvidz-docker.onrender.com/ping" # Changed to Docker URL
+    url = "https://scanvidz-default.onrender.com/ping" # Back to default URL
     while True:
         try:
             time.sleep(840)
