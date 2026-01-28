@@ -54,7 +54,8 @@ function SearchContent() {
     // Debounce: User ke rukne ke 300ms baad API call hogi
     const timer = setTimeout(() => {
         if (query.length > 1 && showSuggestions) {
-            fetch(`https://scanvidz-default.onrender.com/suggestions?q=${encodeURIComponent(query)}`)
+            // 🔥 UPDATE: Naya Link Yahan Hai
+            fetch(`https://scanvidz-backend.onrender.com/suggestions?q=${encodeURIComponent(query)}`)
                 .then(res => res.json())
                 .then(data => setSuggestions(data))
                 .catch(err => console.error(err));
@@ -87,8 +88,8 @@ function SearchContent() {
     if (isLoadMore) setLoadingMore(true); else setLoadingInitial(true);
 
     const limit = 40; 
-    // 🔥 Adding 'filter' parameter to backend call
-    let apiUrl = `https://scanvidz-default.onrender.com/search?q=${encodeURIComponent(searchQuery)}&limit=${limit}&page=${pageNum}`;
+    // 🔥 UPDATE: Naya Link Yahan Bhi Hai
+    let apiUrl = `https://scanvidz-backend.onrender.com/search?q=${encodeURIComponent(searchQuery)}&limit=${limit}&page=${pageNum}`;
     
     if (currentFilter && currentFilter !== "All") {
         apiUrl += `&filter=${encodeURIComponent(currentFilter)}`;
