@@ -11,6 +11,7 @@ import os
 import shutil
 import uuid
 import threading 
+import subprocess # 🔥 REQUIRED FOR STREAMING & FFmpeg
 
 # --- DATABASE IMPORTS ---
 from sqlalchemy import create_engine, Column, String, Integer, Float
@@ -393,55 +394,93 @@ def get_formats(v: str, db: Session = Depends(get_db)):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# 🔥 DOWNLOAD API (DIRECT REDIRECT MODE - FASTEST)
+# 🔥 UPDATED DOWNLOAD API: STREAMING MODE (NO TIMEOUT ERROR)
 @app.get("/download")
 def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, merge: str = "false"):
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     
-    # 🚀 DIRECT MODE: Bypass server, redirect user to YouTube
+    # 1. Direct Download (Fastest, no server processing)
     if merge != "true":
         try:
             with yt_dlp.YoutubeDL({'format': 'best[ext=mp4]'}) as ydl:
                 info = ydl.extract_info(video_url, download=False)
                 return RedirectResponse(url=info.get('url'))
-        except:
-            pass # Failover to server mode
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 
-    # 🐢 SERVER MODE: Merge audio/video (Slower but Higher Quality)
-    if not os.path.exists(DOWNLOAD_DIR): os.makedirs(DOWNLOAD_DIR)
-    filename = f"ScanVidz_{video_id}.mp4"
-    filepath = os.path.join(DOWNLOAD_DIR, filename)
-    
-    # Clean previous if exists
-    if os.path.exists(filepath): os.remove(filepath)
-
-    ydl_opts = {
-        **COMMON_OPTS,
-        'format': f"{format_id}+bestaudio[ext=m4a]/bestaudio/best",
-        'merge_output_format': 'mp4',
-        'outtmpl': filepath,
-        'ffmpeg_location': FFMPEG_PATH
-    }
-    
+    # 2. High Quality Streaming (Server processes and streams instantly)
+    # This prevents the 50s timeout by sending data chunks as they are merged
     try:
-        print(f"⚙️ Processing Download on Server: {video_id}")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
-        
-        background_tasks.add_task(cleanup_file, filepath)
-        
-        return FileResponse(
-            filepath, 
-            media_type='video/mp4', 
-            filename=filename,
+        def stream_generator():
+            # Get the direct URLs for video and audio
+            ydl_opts = {
+                **COMMON_OPTS,
+                'format': f"{format_id}+bestaudio[ext=m4a]/bestaudio/best"
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(video_url, download=False)
+                
+                # Extract specific stream URLs
+                formats = info.get('formats', [])
+                video_fmt = next((f for f in formats if f['format_id'] == format_id), None)
+                audio_fmt = next((f for f in formats if f.get('acodec') != 'none' and f.get('vcodec') == 'none'), None)
+
+                if not video_fmt: 
+                    video_fmt = next((f for f in formats if f['ext'] == 'mp4'), None)
+                
+                v_url = video_fmt['url'] if video_fmt else None
+                a_url = audio_fmt['url'] if audio_fmt else None
+
+            if not v_url:
+                raise Exception("Could not find video stream")
+
+            # Construct FFmpeg command for on-the-fly merging
+            cmd = [
+                FFMPEG_PATH,
+                '-i', v_url,
+            ]
+            
+            if a_url:
+                cmd.extend(['-i', a_url])
+            else:
+                # If no separate audio, just input video (might be muxed already)
+                pass
+                
+            cmd.extend([
+                '-c:v', 'copy',       # Copy video stream (No re-encoding = Super Fast)
+                '-c:a', 'aac',        # Ensure audio is AAC
+                '-movflags', 'frag_keyframe+empty_moov', # Essential for streaming MP4
+                '-f', 'mp4',          # Output format
+                '-preset', 'ultrafast', # Max speed
+                'pipe:1'              # Output to stdout
+            ])
+
+            # Start FFmpeg process
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=10**7)
+
+            # Yield data chunks
+            while True:
+                chunk = process.stdout.read(64 * 1024) # 64KB chunks
+                if not chunk:
+                    break
+                yield chunk
+            
+            process.stdout.close()
+            process.wait()
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type="video/mp4",
             headers={
-                "Content-Disposition": f"attachment; filename={filename}",
-                "Cache-Control": "no-cache"
+                "Content-Disposition": f'attachment; filename="ScanVidz_{video_id}.mp4"'
             }
         )
+
     except Exception as e:
-        return {"status": "error", "message": "Download failed or timed out."}
+        print(f"Stream Error: {e}")
+        # Fallback to direct download if streaming fails
+        return download_video(v, format_id, background_tasks, merge="false")
 
 @app.get("/trending")
 def get_trending():
