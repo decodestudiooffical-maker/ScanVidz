@@ -11,7 +11,8 @@ import os
 import shutil
 import uuid
 import threading 
-import subprocess # 🔥 REQUIRED FOR STREAMING & FFmpeg
+import subprocess 
+import random # 🔥 REQUIRED FOR USER-AGENT ROTATION
 
 # --- DATABASE IMPORTS ---
 from sqlalchemy import create_engine, Column, String, Integer, Float
@@ -98,6 +99,7 @@ def get_db():
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(current_dir, "downloads")
+COOKIES_FILE = os.path.join(current_dir, "cookies.txt") # 🔥 Idea #1: Cookies Support
 
 # FFmpeg Detection
 if os.name == 'nt': 
@@ -109,18 +111,36 @@ else:
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
-# 🔥 FIX: Global User Agent to prevent 403 Forbidden (0 MB Error)
-USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+# 🔥 Idea #9: User-Agent Rotation (Prevents 403 Forbidden & 0MB Files)
+# This list fools YouTube into thinking we are different real browsers
+USER_AGENTS_LIST = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (iPad; CPU OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'
+]
 
-# 🔥 GLOBAL YT-DLP OPTIONS (Anti-Block)
-COMMON_OPTS = {
+def get_random_agent():
+    """Returns a random user agent string"""
+    return random.choice(USER_AGENTS_LIST)
+
+# 🔥 Idea #11: Client Impersonation & Anti-Throttle
+# We tell YouTube we are an Android Client to avoid strict throttling
+BASE_OPTS = {
     'quiet': True,
     'no_warnings': True,
     'nocheckcertificate': True,
-    'http_headers': {
-        'User-Agent': USER_AGENT,
-    }
+    'geo_bypass': True,
+    'extractor_args': {'youtube': {'player_client': ['android', 'web']}}, # Spoof Android Client
+    'socket_timeout': 30, # Idea #4: Prevent Timeouts
 }
+
+# Inject Cookies if available (For Premium/Age-Restricted Content)
+if os.path.exists(COOKIES_FILE):
+    print("🍪 Cookies Found! Injecting for Auth.")
+    BASE_OPTS['cookiefile'] = COOKIES_FILE
 
 # =================================================================
 # 4. HELPER FUNCTIONS
@@ -151,8 +171,8 @@ def get_avatar(name):
     safe_name = (name or "U").replace(" ", "+")
     return f"https://ui-avatars.com/api/?background=random&color=fff&name={safe_name}&size=128"
 
-# 🔥 NEW: Background Task Function (The Magic Fix)
-# This moves the DB update to background, unblocking the UI instantly
+# 🔥 BACKGROUND TASK: Updates Cache (Keeps UI Fast)
+# This moves the heavy database work to the background so the user gets links instantly
 def update_video_cache_background(video_id: str, info: dict, db_session_factory):
     """Updates database in background so user doesn't wait"""
     db = db_session_factory()
@@ -171,11 +191,8 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
             cached_video.updated_at = time.time()
         else:
             new_cache = VideoCache(
-                video_id=video_id,
-                title=info.get('title'),
-                likes=str(real_likes),
-                views=str(real_views),
-                subs=str(real_subs),
+                video_id=video_id, title=info.get('title'),
+                likes=str(real_likes), views=str(real_views), subs=str(real_subs),
                 updated_at=time.time()
             )
             db.add(new_cache)
@@ -265,7 +282,7 @@ def get_comments(v: str, db: Session = Depends(get_db)):
 
 @app.get("/")
 def home():
-    return {"message": "ScanVidz Backend Running High Performance 🚀"}
+    return {"message": "ScanVidz Ultimate Backend Running 🚀"}
 
 # 🔥 PING ENDPOINT (Sleep Fix)
 @app.get("/ping")
@@ -291,8 +308,9 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
         elif filter == "Music": search_term += " music video"
         elif filter == "Gaming": search_term += " gameplay"
     
+    # Use BASE_OPTS for search too to avoid blocks
     ydl_opts = {
-        **COMMON_OPTS, 
+        **BASE_OPTS, 
         'extract_flat': True, 
         'noplaylist': True, 
         'limit': limit * page
@@ -322,6 +340,7 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
     return {"status": "success", "results": results, "page": page}
 
 # 🔥 META API (Separated for Parallel Loading)
+# Allows frontend to fetch stats separately so download buttons aren't blocked
 @app.get("/meta")
 def get_meta(v: str, db: Session = Depends(get_db)):
     if not v: return {"status": "error"}
@@ -342,7 +361,7 @@ def get_meta(v: str, db: Session = Depends(get_db)):
     
     # If not in cache, fetch light metadata
     try:
-        ydl_opts = {**COMMON_OPTS, 'extract_flat': True} # Fast fetch
+        ydl_opts = {**BASE_OPTS, 'extract_flat': True} # Fast fetch
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             return {
@@ -356,7 +375,7 @@ def get_meta(v: str, db: Session = Depends(get_db)):
     except:
         return {"status": "error"}
 
-# 🔥 UPDATED FORMATS API: Background Task Implemented (Loading Formats Fix)
+# 🔥 SUPER FAST FORMATS API (Hybrid: Random Agent + Background Task)
 @app.get("/formats")
 def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if not v: return {"status": "error"}
@@ -364,14 +383,11 @@ def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
     video_url = f"https://www.youtube.com/watch?v={video_id}"
 
-    # ⚡ STEP 1: CHECK DATABASE CACHE
+    # 1. Try Cache for INSTANT Response
     cached_video = db.query(VideoCache).filter(VideoCache.video_id == video_id).first()
-    
-    current_time = time.time()
     real_meta = None
-
-    # Use cache if it exists and is less than 24 hours old
-    if cached_video and (current_time - cached_video.updated_at < 86400):
+    
+    if cached_video and (time.time() - cached_video.updated_at < 86400):
         print(f"⚡ Serving {video_id} from Database Cache (Instant Load)")
         real_meta = {
             "likes": cached_video.likes,
@@ -381,8 +397,10 @@ def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends
     else:
         print(f"📥 Fetching FRESH data from YouTube for {video_id}")
 
-    # ⚡ STEP 2: FETCH FROM YOUTUBE (If Cache Miss)
-    ydl_opts = COMMON_OPTS.copy()
+    # 2. Fetch Formats (With User-Agent Rotation)
+    current_agent = get_random_agent()
+    ydl_opts = BASE_OPTS.copy()
+    ydl_opts['http_headers'] = {'User-Agent': current_agent}
     formats_list = []
 
     try:
@@ -447,62 +465,77 @@ def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# 🔥 DOWNLOAD API: STREAMING + HEADERS (Fixed 0MB & Timeout)
+# 🔥 ULTIMATE DOWNLOAD API (Combined 11 Ideas)
+# Strategy: Direct Redirect > Stream > Header Injection > Rotation
 @app.get("/download")
 def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, merge: str = "false"):
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     
-    # 1. Direct Download
+    current_agent = get_random_agent() # Idea #9: Rotate User ID
+
+    # 1. Direct Download Redirect (Most Reliable - Idea #6)
+    # If the user requested a standard quality or the link is available, 
+    # we redirect them straight to Google. No 0 MB error possible.
     if merge != "true":
         try:
-            with yt_dlp.YoutubeDL({'format': 'best[ext=mp4]'}) as ydl:
+            opts = BASE_OPTS.copy()
+            opts['http_headers'] = {'User-Agent': current_agent}
+            with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
-                return RedirectResponse(url=info.get('url'))
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
+                # Find exact format url
+                target_url = next((f['url'] for f in info['formats'] if f['format_id'] == format_id), info.get('url'))
+                return RedirectResponse(url=target_url)
+        except Exception as e: 
+            pass # Failover to streaming if direct link fails
 
-    # 2. High Quality Streaming
+    # 2. Resilient Streaming (Idea #3, #5, #8)
+    # If we MUST merge (1080p+), we use FFmpeg pipe with Headers Injection
     try:
         def stream_generator():
-            ydl_opts = {
-                **COMMON_OPTS,
-                'format': f"{format_id}+bestaudio[ext=m4a]/bestaudio/best"
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            opts = BASE_OPTS.copy()
+            opts['format'] = f"{format_id}+bestaudio[ext=m4a]/bestaudio/best"
+            opts['http_headers'] = {'User-Agent': current_agent}
+            
+            with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
                 formats = info.get('formats', [])
                 video_fmt = next((f for f in formats if f['format_id'] == format_id), None)
                 audio_fmt = next((f for f in formats if f.get('acodec') != 'none' and f.get('vcodec') == 'none'), None)
+                
                 if not video_fmt: video_fmt = next((f for f in formats if f['ext'] == 'mp4'), None)
                 
                 v_url = video_fmt['url'] if video_fmt else None
                 a_url = audio_fmt['url'] if audio_fmt else None
 
-            if not v_url: raise Exception("No video URL")
+            if not v_url: raise Exception("No video URL found")
 
-            # 🔥 FFmpeg Command with HEADERS
+            # 🔥 FFmpeg with User-Agent Injection (Crucial for 0 MB Fix)
             cmd = [
                 FFMPEG_PATH,
                 '-loglevel', 'error',
-                '-user_agent', USER_AGENT,
+                '-headers', f'User-Agent: {current_agent}', # Inject Header for Video
                 '-i', v_url,
             ]
+            
             if a_url:
-                cmd.extend(['-user_agent', USER_AGENT]) 
+                cmd.extend(['-headers', f'User-Agent: {current_agent}']) # Inject Header for Audio
                 cmd.extend(['-i', a_url])
             
+            # Idea #8: Ultrafast Copy Mode
             cmd.extend([
-                '-c:v', 'copy', '-c:a', 'aac',
-                '-movflags', 'frag_keyframe+empty_moov',
-                '-f', 'mp4', '-preset', 'ultrafast',
-                'pipe:1'
+                '-c:v', 'copy',       # Copy video stream (No re-encoding = Super Fast)
+                '-c:a', 'aac',        # Ensure audio is AAC
+                '-movflags', 'frag_keyframe+empty_moov', # Essential for streaming MP4
+                '-f', 'mp4',          # Output format
+                '-preset', 'ultrafast', # Max speed
+                'pipe:1'              # Output to stdout
             ])
 
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=10**7)
 
             while True:
-                chunk = process.stdout.read(64 * 1024)
+                chunk = process.stdout.read(64 * 1024) # 64KB chunks
                 if not chunk: break
                 yield chunk
             
@@ -516,12 +549,12 @@ def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, me
 
     except Exception as e:
         print(f"Stream Error: {e}")
-        return download_video(v, format_id, background_tasks, merge="false")
+        return {"status": "error", "message": "Download failed. Try 720p or lower."}
 
 @app.get("/trending")
 def get_trending():
     # Use lightweight extraction for speed
-    ydl_opts = {**COMMON_OPTS, 'extract_flat': True, 'limit': 20}
+    ydl_opts = {**BASE_OPTS, 'extract_flat': True, 'limit': 20}
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
