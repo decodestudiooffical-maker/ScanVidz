@@ -1,6 +1,6 @@
 import uvicorn
 from fastapi import FastAPI, Query, HTTPException, Response, BackgroundTasks, Body, Depends
-from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import yt_dlp
@@ -12,20 +12,20 @@ import shutil
 import uuid
 import threading 
 import subprocess 
-import random # 🔥 REQUIRED FOR USER-AGENT ROTATION
+import random 
 
 # --- DATABASE IMPORTS ---
-from sqlalchemy import create_engine, Column, String, Integer, Float
+from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
 # =================================================================
-# 1. APP CONFIGURATION
+# 1. APP CONFIGURATION & SECURITY
 # =================================================================
 
 app = FastAPI()
 
-# Enable CORS (Allows Frontend to talk to Backend)
+# Enable CORS (Allows Frontend to talk to Backend securely)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,22 +35,22 @@ app.add_middleware(
 )
 
 # =================================================================
-# 2. DATABASE SETUP (PostgreSQL / Neon)
+# 2. DATABASE SETUP (BUSINESS MODEL INTEGRATED)
 # =================================================================
 
-# Your Database URL
+# Your Neon Database URL
 SQLALCHEMY_DATABASE_URL = "postgresql://neondb_owner:npg_GP6XqUDHMZc5@ep-spring-surf-a1wl9hrh-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
 
 try:
     engine = create_engine(SQLALCHEMY_DATABASE_URL)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base = declarative_base()
-    print("✅ Database Connected Successfully!")
+    print("✅ Database Connected Successfully! Business Engine Ready.")
 except Exception as e:
     print("❌ Database Connection Failed:", e)
     Base = declarative_base() 
 
-# --- TABLE 1: USERS ---
+# --- CORE USER TABLE ---
 class User(Base):
     __tablename__ = "users"
     id = Column(String, primary_key=True, index=True)
@@ -59,33 +59,68 @@ class User(Base):
     password = Column(String)
     joined = Column(String)
 
-# --- TABLE 2: VIDEO CACHE (For Super Fast Loading) ---
+# --- VIDEO CACHE (YouTube Data) ---
 class VideoCache(Base):
     __tablename__ = "video_cache"
     video_id = Column(String, primary_key=True, index=True)
     title = Column(String)
-    likes = Column(String) 
-    subs = Column(String)
+    likes = Column(String) # Legacy YouTube Likes
+    subs = Column(String)  # Legacy YouTube Subs
     views = Column(String)
-    updated_at = Column(Float) # Stores time to refresh cache daily
+    updated_at = Column(Float)
 
-# --- TABLE 3: COMMENTS (🔥 NEW FEATURE) ---
+# --- COMMENTS TABLE ---
 class Comment(Base):
     __tablename__ = "comments"
     id = Column(String, primary_key=True, index=True)
-    video_id = Column(String, index=True) # Links comment to a video
+    video_id = Column(String, index=True)
     user_name = Column(String)
     user_avatar = Column(String)
     text = Column(String)
     timestamp = Column(String)
 
-# Create Tables if not exist
+# --- 🔥 NEW: BUSINESS ENGAGEMENT TABLES (ScanVidz Ecosystem) ---
+
+class VideoEngagement(Base):
+    """
+    Stores Internal ScanVidz Likes & Views.
+    This data belongs to YOU, and creators will pay to sync this.
+    """
+    __tablename__ = "video_engagement"
+    video_id = Column(String, primary_key=True, index=True)
+    scanvidz_likes = Column(Integer, default=0) # Likes on YOUR platform
+    scanvidz_views = Column(Integer, default=0) # Views on YOUR platform
+
+class UserLike(Base):
+    """
+    Tracks unique likes to prevent spam.
+    One User = One Like per Video.
+    """
+    __tablename__ = "user_likes"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, index=True)
+    video_id = Column(String, index=True)
+
+class UserPurchase(Base):
+    """
+    Stores Payment History.
+    If a user buys a 4K video, record it here so they can download it again later freely.
+    """
+    __tablename__ = "user_purchases"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, index=True)
+    video_id = Column(String, index=True)
+    quality = Column(String) # e.g., '1080p', '4k'
+    amount_paid = Column(Float) # e.g., 5.0, 40.0
+    timestamp = Column(Float)
+
+# Create all tables in the database
 try:
     Base.metadata.create_all(bind=engine)
 except:
     pass
 
-# Database Dependency
+# Dependency to get DB Session
 def get_db():
     db = SessionLocal()
     try:
@@ -99,20 +134,17 @@ def get_db():
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(current_dir, "downloads")
-COOKIES_FILE = os.path.join(current_dir, "cookies.txt") # 🔥 Idea #1: Cookies Support
+COOKIES_FILE = os.path.join(current_dir, "cookies.txt")
 
-# FFmpeg Detection
 if os.name == 'nt': 
     FFMPEG_PATH = os.path.join(current_dir, "ffmpeg.exe")
 else: 
     FFMPEG_PATH = "ffmpeg" 
 
-# Create Download Directory
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
-# 🔥 Idea #9: User-Agent Rotation (Prevents 403 Forbidden & 0MB Files)
-# This list fools YouTube into thinking we are different real browsers
+# 🔥 USER-AGENT ROTATION (Prevents 0 MB & Block Issues)
 USER_AGENTS_LIST = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Safari/605.1.15',
@@ -123,23 +155,20 @@ USER_AGENTS_LIST = [
 ]
 
 def get_random_agent():
-    """Returns a random user agent string"""
     return random.choice(USER_AGENTS_LIST)
 
-# 🔥 Idea #11: Client Impersonation & Anti-Throttle
-# We tell YouTube we are an Android Client to avoid strict throttling
+# 🔥 CLIENT IMPERSONATION (The Android Trick)
 BASE_OPTS = {
     'quiet': True,
     'no_warnings': True,
     'nocheckcertificate': True,
     'geo_bypass': True,
-    'extractor_args': {'youtube': {'player_client': ['android', 'web']}}, # Spoof Android Client
-    'socket_timeout': 30, # Idea #4: Prevent Timeouts
+    'extractor_args': {'youtube': {'player_client': ['android', 'web']}}, # Use Android Client to bypass throttling
+    'socket_timeout': 30,
 }
 
-# Inject Cookies if available (For Premium/Age-Restricted Content)
 if os.path.exists(COOKIES_FILE):
-    print("🍪 Cookies Found! Injecting for Auth.")
+    print("🍪 Cookies Found! Injecting for Premium Auth.")
     BASE_OPTS['cookiefile'] = COOKIES_FILE
 
 # =================================================================
@@ -147,9 +176,9 @@ if os.path.exists(COOKIES_FILE):
 # =================================================================
 
 def cleanup_file(path: str):
-    """Deletes temporary files after download"""
+    """Deletes temporary files after stream is done to save server space"""
     try:
-        time.sleep(20) # Wait 20s for slow networks
+        time.sleep(20)
         if os.path.exists(path):
             os.remove(path)
             print(f"🗑️ Deleted temp file: {path}")
@@ -157,7 +186,6 @@ def cleanup_file(path: str):
         print(f"⚠️ Error deleting file: {e}")
 
 def format_views(count):
-    """Converts 1500000 -> 1.5M"""
     if not count: return "N/A"
     try:
         count = int(count)
@@ -167,18 +195,16 @@ def format_views(count):
     except: return str(count)
 
 def get_avatar(name):
-    """Generates a colorful avatar"""
     safe_name = (name or "U").replace(" ", "+")
     return f"https://ui-avatars.com/api/?background=random&color=fff&name={safe_name}&size=128"
 
-# 🔥 BACKGROUND TASK: Updates Cache (Keeps UI Fast)
-# This moves the heavy database work to the background so the user gets links instantly
+# 🔥 BACKGROUND CACHE UPDATER
+# Keeps the UI fast by saving data silently in the background
 def update_video_cache_background(video_id: str, info: dict, db_session_factory):
-    """Updates database in background so user doesn't wait"""
     db = db_session_factory()
     try:
+        # 1. Update Standard Cache
         cached_video = db.query(VideoCache).filter(VideoCache.video_id == video_id).first()
-        
         real_likes = info.get('like_count', 0)
         real_views = format_views(info.get('view_count', 0))
         real_subs = format_views(info.get('channel_follower_count', 0))
@@ -196,6 +222,13 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
                 updated_at=time.time()
             )
             db.add(new_cache)
+        
+        # 2. Ensure Engagement Record Exists (For our Business Data)
+        internal_stats = db.query(VideoEngagement).filter(VideoEngagement.video_id == video_id).first()
+        if not internal_stats:
+            new_stats = VideoEngagement(video_id=video_id, scanvidz_likes=0, scanvidz_views=0)
+            db.add(new_stats)
+            
         db.commit()
         print(f"✅ Background Cache Updated for {video_id}")
     except Exception as e:
@@ -204,7 +237,7 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
         db.close()
 
 # =================================================================
-# 5. AUTHENTICATION ENDPOINTS
+# 5. AUTHENTICATION API
 # =================================================================
 
 class UserSignup(BaseModel):
@@ -220,14 +253,7 @@ class UserLogin(BaseModel):
 def signup(user: UserSignup, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.email_or_phone == user.email_or_phone).first()
     if existing: raise HTTPException(status_code=400, detail="User exists")
-    
-    new_user = User(
-        id=str(uuid.uuid4()), 
-        name=user.name, 
-        email_or_phone=user.email_or_phone, 
-        password=user.password, 
-        joined=time.strftime("%Y-%m-%d")
-    )
+    new_user = User(id=str(uuid.uuid4()), name=user.name, email_or_phone=user.email_or_phone, password=user.password, joined=time.strftime("%Y-%m-%d"))
     db.add(new_user); db.commit()
     return {"status": "success", "user": new_user}
 
@@ -244,7 +270,7 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db)):
     return {"status": "success", "user": user}
 
 # =================================================================
-# 6. COMMENTS ENDPOINTS
+# 6. COMMENTS API
 # =================================================================
 
 class CommentModel(BaseModel):
@@ -255,39 +281,93 @@ class CommentModel(BaseModel):
 
 @app.post("/comments")
 def post_comment(comment: CommentModel, db: Session = Depends(get_db)):
-    """Save a new comment to the database"""
     new_comment = Comment(
-        id=str(uuid.uuid4()),
-        video_id=comment.video_id,
-        user_name=comment.user_name,
-        user_avatar=comment.user_avatar,
-        text=comment.text,
-        timestamp="Just now" 
+        id=str(uuid.uuid4()), video_id=comment.video_id,
+        user_name=comment.user_name, user_avatar=comment.user_avatar,
+        text=comment.text, timestamp="Just now" 
     )
-    db.add(new_comment)
-    db.commit()
+    db.add(new_comment); db.commit()
     return {"status": "success", "comment": new_comment}
 
 @app.get("/comments")
 def get_comments(v: str, db: Session = Depends(get_db)):
-    """Fetch comments for a specific video"""
-    # Fetch comments for this video
     comments = db.query(Comment).filter(Comment.video_id == v).all()
-    # Return reversed list (Newest first)
     return {"status": "success", "comments": comments[::-1]}
 
 # =================================================================
-# 7. VIDEO API ENDPOINTS (CORE LOGIC)
+# 🔥 7. BUSINESS LOGIC (ALGORITHMS FOR CREATOR ECONOMY)
+# =================================================================
+
+class LikeRequest(BaseModel):
+    user_id: str
+    video_id: str
+
+@app.post("/toggle_like")
+def toggle_like(req: LikeRequest, db: Session = Depends(get_db)):
+    """
+    Algorithm: 
+    1. Check if user already liked the video in 'user_likes' table.
+    2. If yes -> Remove like, Decrease count.
+    3. If no -> Add like, Increase count.
+    4. Update 'video_engagement' table (The Asset for Creators).
+    """
+    existing_like = db.query(UserLike).filter(UserLike.user_id == req.user_id, UserLike.video_id == req.video_id).first()
+    video_stats = db.query(VideoEngagement).filter(VideoEngagement.video_id == req.video_id).first()
+    
+    if not video_stats:
+        video_stats = VideoEngagement(video_id=req.video_id, scanvidz_likes=0)
+        db.add(video_stats)
+
+    liked = False
+    if existing_like:
+        # User wants to UNLIKE
+        db.delete(existing_like)
+        video_stats.scanvidz_likes = max(0, video_stats.scanvidz_likes - 1)
+        liked = False
+    else:
+        # User wants to LIKE
+        new_like = UserLike(user_id=req.user_id, video_id=req.video_id)
+        db.add(new_like)
+        video_stats.scanvidz_likes += 1
+        liked = True
+    
+    db.commit()
+    return {"status": "success", "liked": liked, "total_likes": video_stats.scanvidz_likes}
+
+class PurchaseRequest(BaseModel):
+    user_id: str
+    video_id: str
+    quality: str
+    amount: float
+
+@app.post("/buy_video")
+def buy_video(req: PurchaseRequest, db: Session = Depends(get_db)):
+    """
+    Algorithm:
+    1. Verify Payment (Simulation).
+    2. Record purchase in 'user_purchases'.
+    3. Unlock video for download.
+    """
+    new_purchase = UserPurchase(
+        user_id=req.user_id,
+        video_id=req.video_id,
+        quality=req.quality,
+        amount_paid=req.amount,
+        timestamp=time.time()
+    )
+    db.add(new_purchase)
+    db.commit()
+    return {"status": "success", "message": "Payment Successful! Download unlocked."}
+
+# =================================================================
+# 8. VIDEO DATA API
 # =================================================================
 
 @app.get("/")
-def home():
-    return {"message": "ScanVidz Ultimate Backend Running 🚀"}
+def home(): return {"message": "ScanVidz Business Engine Running 🚀"}
 
-# 🔥 PING ENDPOINT (Sleep Fix)
 @app.get("/ping")
-def ping_server():
-    return {"status": "awake", "message": "I am alive!"}
+def ping_server(): return {"status": "awake"}
 
 @app.get("/suggestions")
 def get_suggestions(q: str = Query(None)):
@@ -300,22 +380,13 @@ def get_suggestions(q: str = Query(None)):
 @app.get("/search")
 def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: str = Query(None)):
     search_term = q if q else "trending"
-    
-    # Apply Filters
     if filter:
         if filter == "4K Ultra HD": search_term += " 4k hdr"
         elif filter == "Live": search_term += " live stream"
         elif filter == "Music": search_term += " music video"
         elif filter == "Gaming": search_term += " gameplay"
     
-    # Use BASE_OPTS for search too to avoid blocks
-    ydl_opts = {
-        **BASE_OPTS, 
-        'extract_flat': True, 
-        'noplaylist': True, 
-        'limit': limit * page
-    }
-    
+    ydl_opts = {**BASE_OPTS, 'extract_flat': True, 'noplaylist': True, 'limit': limit * page}
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -324,80 +395,47 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
                 start = (page - 1) * limit
                 for vid in info['entries'][start : start+limit]:
                     if vid:
-                        results.append({
-                            "title": vid.get('title'),
-                            "link": vid.get('url') or f"https://www.youtube.com/watch?v={vid.get('id')}",
-                            "id": vid.get('id'),
-                            "thumbnail": vid.get('thumbnail') or f"https://i.ytimg.com/vi/{vid.get('id')}/hqdefault.jpg",
-                            "duration": vid.get('duration_string') or "HD",
-                            "views": format_views(vid.get('view_count')),
-                            "channel_name": vid.get('uploader') or "ScanVidz",
-                            "channel_avatar": get_avatar(vid.get('uploader'))
-                        })
-    except Exception as e:
-        return {"status": "error", "message": str(e), "results": []}
-    
+                        results.append({"title": vid.get('title'), "link": vid.get('url') or f"https://www.youtube.com/watch?v={vid.get('id')}", "id": vid.get('id'), "thumbnail": vid.get('thumbnail') or f"https://i.ytimg.com/vi/{vid.get('id')}/hqdefault.jpg", "duration": vid.get('duration_string') or "HD", "views": format_views(vid.get('view_count')), "channel_name": vid.get('uploader') or "ScanVidz", "channel_avatar": get_avatar(vid.get('uploader'))})
+    except Exception as e: return {"status": "error", "message": str(e), "results": []}
     return {"status": "success", "results": results, "page": page}
 
-# 🔥 META API (Separated for Parallel Loading)
-# Allows frontend to fetch stats separately so download buttons aren't blocked
+# 🔥 UPDATED META API: Returns Internal ScanVidz Likes instead of YouTube
 @app.get("/meta")
-def get_meta(v: str, db: Session = Depends(get_db)):
+def get_meta(v: str, user_id: str = None, db: Session = Depends(get_db)):
     if not v: return {"status": "error"}
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
-    video_url = f"https://www.youtube.com/watch?v={video_id}"
-
-    # Check Cache First
-    cached_video = db.query(VideoCache).filter(VideoCache.video_id == video_id).first()
-    if cached_video:
-        return {
-            "status": "success",
-            "meta": {
-                "likes": cached_video.likes,
-                "views": cached_video.views,
-                "subs": cached_video.subs
-            }
-        }
     
-    # If not in cache, fetch light metadata
-    try:
-        ydl_opts = {**BASE_OPTS, 'extract_flat': True} # Fast fetch
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_url, download=False)
-            return {
-                "status": "success",
-                "meta": {
-                    "likes": info.get('like_count', 0),
-                    "views": format_views(info.get('view_count', 0)),
-                    "subs": "Loading..." 
-                }
-            }
-    except:
-        return {"status": "error"}
+    # 1. Fetch Internal Stats (Business Data)
+    stats = db.query(VideoEngagement).filter(VideoEngagement.video_id == video_id).first()
+    total_likes = stats.scanvidz_likes if stats else 0
+    
+    # 2. Check if specific user liked it
+    is_liked = False
+    if user_id:
+        user_like = db.query(UserLike).filter(UserLike.user_id == user_id, UserLike.video_id == video_id).first()
+        is_liked = True if user_like else False
 
-# 🔥 SUPER FAST FORMATS API (Hybrid: Random Agent + Background Task)
+    # 3. Get Cache for other details
+    cached_video = db.query(VideoCache).filter(VideoCache.video_id == video_id).first()
+    subs = cached_video.subs if cached_video else "Loading..."
+
+    return {
+        "status": "success",
+        "meta": {
+            "likes": total_likes, # ScanVidz Internal Likes
+            "views": cached_video.views if cached_video else "0",
+            "subs": subs,
+            "is_liked": is_liked # Boolean for frontend
+        }
+    }
+
+# 🔥 FORMATS API WITH PRICING ENGINE
 @app.get("/formats")
 def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if not v: return {"status": "error"}
-    
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
     video_url = f"https://www.youtube.com/watch?v={video_id}"
 
-    # 1. Try Cache for INSTANT Response
-    cached_video = db.query(VideoCache).filter(VideoCache.video_id == video_id).first()
-    real_meta = None
-    
-    if cached_video and (time.time() - cached_video.updated_at < 86400):
-        print(f"⚡ Serving {video_id} from Database Cache (Instant Load)")
-        real_meta = {
-            "likes": cached_video.likes,
-            "views": cached_video.views,
-            "subs": cached_video.subs
-        }
-    else:
-        print(f"📥 Fetching FRESH data from YouTube for {video_id}")
-
-    # 2. Fetch Formats (With User-Agent Rotation)
     current_agent = get_random_agent()
     ydl_opts = BASE_OPTS.copy()
     ydl_opts['http_headers'] = {'User-Agent': current_agent}
@@ -407,153 +445,132 @@ def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             
-            # 🔥 MAGIC FIX: Send DB update to Background (Don't make user wait!)
+            # Update cache in background
             background_tasks.add_task(update_video_cache_background, video_id, info, SessionLocal)
             
-            # If meta wasn't in cache, create temporary one for response
-            if not real_meta:
-                real_meta = {
-                    "likes": info.get('like_count', 0),
-                    "views": format_views(info.get('view_count', 0)),
-                    "subs": "1M+" # Show placeholder, real subs will load via /meta
-                }
-
-            # Process Formats (Always fresh to avoid expire links)
             for f in info.get('formats', []):
                 if f.get('ext') in ['mp4', 'webm'] and f.get('protocol') in ['https', 'http']:
                     height = f.get('height') or 0
                     if height < 144: continue
-                    
                     size_mb = f.get('filesize', 0) / (1024 * 1024) if f.get('filesize') else 0
-                    quality_label = f"{height}p"
-                    needs_merge = False
                     
-                    if height >= 1080:
-                        quality_label += " (HQ + Audio 🔊)" 
-                        needs_merge = True
-                    elif f.get('acodec') != 'none':
-                        if f.get('ext') == 'webm': continue 
-                        quality_label += " (Direct)"
-                        needs_merge = False
-                    else: continue 
+                    # 🔥 DYNAMIC PRICING ALGORITHM
+                    # 720p & below = FREE
+                    # 1080p = ₹5, 2K = ₹15, 4K = ₹40, 8K = ₹100
+                    price = 0
+                    if height == 1080: price = 5
+                    elif height == 1440: price = 15 # 2K
+                    elif height == 2160: price = 40 # 4K
+                    elif height == 4320: price = 100 # 8K
+                    
+                    quality_label = f"{height}p"
+                    if price > 0: quality_label += f" (Premium ₹{price})"
+                    else: quality_label += " (Free)"
 
+                    needs_merge = height >= 1080
                     formats_list.append({
                         "format_id": f['format_id'],
                         "quality": quality_label,
                         "ext": "mp4",
                         "size": f"{size_mb:.1f} MB" if size_mb > 0 else "High Quality",
                         "height": height,
-                        "needs_merge": needs_merge
+                        "needs_merge": needs_merge,
+                        "price": price # Sent to frontend to trigger Payment
                     })
             
-            # Sort formats high to low
             formats_list.sort(key=lambda x: x['height'], reverse=True)
             unique_formats = []
             seen = set()
             for f in formats_list:
-                if f['height'] not in seen:
-                    unique_formats.append(f)
-                    seen.add(f['height'])
+                if f['height'] not in seen: unique_formats.append(f); seen.add(f['height'])
             
-            return {
-                "status": "success", 
-                "formats": unique_formats, 
-                "meta": real_meta, 
-                "title": info.get('title')
-            }
+            return {"status": "success", "formats": unique_formats, "title": info.get('title')}
+    except Exception as e: return {"status": "error", "message": str(e)}
 
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+# =================================================================
+# 🔥 9. DOWNLOAD API (11-in-1 Engine + PAYMENT WALL)
+# =================================================================
 
-# 🔥 ULTIMATE DOWNLOAD API (Combined 11 Ideas)
-# Strategy: Direct Redirect > Stream > Header Injection > Rotation
 @app.get("/download")
-def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, merge: str = "false"):
+def download_video(v: str, format_id: str, user_id: str = None, background_tasks: BackgroundTasks = None, merge: str = "false", db: Session = Depends(get_db)):
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     
-    current_agent = get_random_agent() # Idea #9: Rotate User ID
+    current_agent = get_random_agent()
 
-    # 1. Direct Download Redirect (Most Reliable - Idea #6)
-    # If the user requested a standard quality or the link is available, 
-    # we redirect them straight to Google. No 0 MB error possible.
+    # 🚀 SECURITY: CHECK PAYMENT STATUS
+    # Before starting download, we verify if user paid for high quality
+    try:
+        # Quick extract to check quality
+        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+            info = ydl.extract_info(video_url, download=False)
+            target_format = next((f for f in info['formats'] if f['format_id'] == format_id), None)
+            
+            if target_format:
+                height = target_format.get('height', 0)
+                
+                # Paywall Logic
+                if height > 720: # Premium Content
+                    if not user_id:
+                        return JSONResponse(status_code=401, content={"status": "error", "message": "Login Required for Premium Download"})
+                    
+                    # Verify in DB
+                    purchase = db.query(UserPurchase).filter(UserPurchase.user_id == user_id, UserPurchase.video_id == video_id, UserPurchase.quality == f"{height}p").first()
+                    # Also check generic purchase for this video (optional flexibility)
+                    if not purchase:
+                        purchase = db.query(UserPurchase).filter(UserPurchase.user_id == user_id, UserPurchase.video_id == video_id).first()
+
+                    if not purchase:
+                        return JSONResponse(status_code=402, content={"status": "error", "message": f"Payment Required for {height}p. Please buy this video to support the platform."})
+    except Exception as e:
+        print(f"Payment Check Warning: {e}") 
+        # In case of check fail, allow download securely (Fail-Open or Fail-Close policy)
+
+    # 🚀 STRATEGY 1: DIRECT REDIRECT (Fastest)
     if merge != "true":
         try:
             opts = BASE_OPTS.copy()
             opts['http_headers'] = {'User-Agent': current_agent}
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
-                # Find exact format url
                 target_url = next((f['url'] for f in info['formats'] if f['format_id'] == format_id), info.get('url'))
                 return RedirectResponse(url=target_url)
-        except Exception as e: 
-            pass # Failover to streaming if direct link fails
+        except: pass
 
-    # 2. Resilient Streaming (Idea #3, #5, #8)
-    # If we MUST merge (1080p+), we use FFmpeg pipe with Headers Injection
+    # 🚀 STRATEGY 2: RESILIENT STREAMING (Secure Pipe)
     try:
         def stream_generator():
             opts = BASE_OPTS.copy()
             opts['format'] = f"{format_id}+bestaudio[ext=m4a]/bestaudio/best"
             opts['http_headers'] = {'User-Agent': current_agent}
-            
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
                 formats = info.get('formats', [])
                 video_fmt = next((f for f in formats if f['format_id'] == format_id), None)
                 audio_fmt = next((f for f in formats if f.get('acodec') != 'none' and f.get('vcodec') == 'none'), None)
-                
                 if not video_fmt: video_fmt = next((f for f in formats if f['ext'] == 'mp4'), None)
-                
                 v_url = video_fmt['url'] if video_fmt else None
                 a_url = audio_fmt['url'] if audio_fmt else None
 
-            if not v_url: raise Exception("No video URL found")
+            if not v_url: raise Exception("No URL")
 
-            # 🔥 FFmpeg with User-Agent Injection (Crucial for 0 MB Fix)
-            cmd = [
-                FFMPEG_PATH,
-                '-loglevel', 'error',
-                '-headers', f'User-Agent: {current_agent}', # Inject Header for Video
-                '-i', v_url,
-            ]
-            
-            if a_url:
-                cmd.extend(['-headers', f'User-Agent: {current_agent}']) # Inject Header for Audio
-                cmd.extend(['-i', a_url])
-            
-            # Idea #8: Ultrafast Copy Mode
-            cmd.extend([
-                '-c:v', 'copy',       # Copy video stream (No re-encoding = Super Fast)
-                '-c:a', 'aac',        # Ensure audio is AAC
-                '-movflags', 'frag_keyframe+empty_moov', # Essential for streaming MP4
-                '-f', 'mp4',          # Output format
-                '-preset', 'ultrafast', # Max speed
-                'pipe:1'              # Output to stdout
-            ])
+            cmd = [FFMPEG_PATH, '-loglevel', 'error', '-headers', f'User-Agent: {current_agent}', '-i', v_url]
+            if a_url: cmd.extend(['-headers', f'User-Agent: {current_agent}']); cmd.extend(['-i', a_url])
+            cmd.extend(['-c:v', 'copy', '-c:a', 'aac', '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', '-preset', 'ultrafast', 'pipe:1'])
 
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=10**7)
-
             while True:
-                chunk = process.stdout.read(64 * 1024) # 64KB chunks
+                chunk = process.stdout.read(64 * 1024)
                 if not chunk: break
                 yield chunk
-            
             process.stdout.close(); process.wait()
 
-        return StreamingResponse(
-            stream_generator(),
-            media_type="video/mp4",
-            headers={"Content-Disposition": f'attachment; filename="ScanVidz_{video_id}.mp4"'}
-        )
-
+        return StreamingResponse(stream_generator(), media_type="video/mp4", headers={"Content-Disposition": f'attachment; filename="ScanVidz_{video_id}.mp4"'})
     except Exception as e:
-        print(f"Stream Error: {e}")
-        return {"status": "error", "message": "Download failed. Try 720p or lower."}
+        return {"status": "error", "message": "Download failed."}
 
 @app.get("/trending")
 def get_trending():
-    # Use lightweight extraction for speed
     ydl_opts = {**BASE_OPTS, 'extract_flat': True, 'limit': 20}
     results = []
     try:
@@ -562,34 +579,19 @@ def get_trending():
             if 'entries' in info:
                 for vid in info['entries']:
                     if vid:
-                        results.append({
-                            "title": vid.get('title'),
-                            "link": vid.get('url') or vid.get('webpage_url'),
-                            "thumbnail": vid.get('thumbnail') or f"https://i.ytimg.com/vi/{vid.get('id')}/hqdefault.jpg",
-                            "duration": "Hot",
-                            "views": format_views(vid.get('view_count')),
-                            "channel_name": vid.get('uploader') or "Trending",
-                            "channel_avatar": get_avatar(vid.get('uploader'))
-                        })
-    except: 
-        return search_videos(q="viral", limit=20)
-    
+                        results.append({"title": vid.get('title'), "link": vid.get('url'), "thumbnail": vid.get('thumbnail'), "duration": "Hot", "views": format_views(vid.get('view_count')), "channel_name": vid.get('uploader'), "channel_avatar": get_avatar(vid.get('uploader'))})
+    except: return search_videos(q="viral", limit=20)
     return {"status": "success", "videos": results}
 
-# 🔥 AUTO KEEP-ALIVE SYSTEM (BACKGROUND THREAD) 🔥
+# 🔥 AUTO KEEP-ALIVE SYSTEM
 def keep_server_alive():
-    """Pings the server every 14 minutes to prevent sleep"""
-    url = "https://scanvidz-default.onrender.com/ping" # Change if using different URL
-    print("⏰ Keep-Alive System Started...")
+    url = "https://scanvidz-default.onrender.com/ping"
     while True:
         try:
-            time.sleep(840) # 14 minutes (Render sleeps at 15m)
-            print(f"⏰ Pinging self at {url}...")
+            time.sleep(840)
             requests.get(url)
-        except Exception as e:
-            print(f"⚠️ Keep-Alive Ping Failed: {e}")
+        except: pass
 
-# Start Keep-Alive on Startup
 @app.on_event("startup")
 async def startup_event():
     threading.Thread(target=keep_server_alive, daemon=True).start()
