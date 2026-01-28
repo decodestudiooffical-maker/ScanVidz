@@ -200,7 +200,7 @@ def cleanup_file(path: str):
         print(f"⚠️ Error deleting file: {e}")
 
 def format_views(count):
-    if not count: return "N/A"
+    if not count: return "0"
     try:
         count = int(count)
         if count >= 1000000: return f"{count / 1000000:.1f}M"
@@ -213,11 +213,9 @@ def get_avatar(name):
     return f"https://ui-avatars.com/api/?background=random&color=fff&name={safe_name}&size=128"
 
 # 🔥 BACKGROUND CACHE UPDATER
-# Keeps the UI fast by saving data silently in the background
 def update_video_cache_background(video_id: str, info: dict, db_session_factory):
     db = db_session_factory()
     try:
-        # 1. Update Standard Cache
         cached_video = db.query(VideoCache).filter(VideoCache.video_id == video_id).first()
         real_likes = info.get('like_count', 0)
         real_views = format_views(info.get('view_count', 0))
@@ -225,7 +223,6 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
         if real_subs == "N/A" or real_subs == "0": real_subs = "1M+"
 
         if cached_video:
-            # We don't overwrite views here anymore for the frontend, but we keep youtube stats for reference
             cached_video.likes = str(real_likes)
             cached_video.subs = str(real_subs)
             cached_video.updated_at = time.time()
@@ -237,31 +234,71 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
             )
             db.add(new_cache)
         
-        # 2. Ensure Engagement Record Exists (For our Business Data)
         internal_stats = db.query(VideoEngagement).filter(VideoEngagement.video_id == video_id).first()
         if not internal_stats:
             new_stats = VideoEngagement(video_id=video_id, scanvidz_likes=0, scanvidz_views=0)
             db.add(new_stats)
             
         db.commit()
-        print(f"✅ Background Cache Updated for {video_id}")
     except Exception as e:
         print(f"⚠️ Background Cache Error: {e}")
     finally:
         db.close()
 
 # =================================================================
-# 5. AUTHENTICATION API
+# 🔥 5. SMART FALLBACK ENGINE (Invidious API)
+# =================================================================
+
+def fallback_search_invidious(query, limit=20):
+    """
+    Plan B: If YouTube blocks IP, fetch data from Public Invidious Mirrors.
+    This guarantees results even if Render IP is banned.
+    """
+    print(f"⚠️ Activating Fallback for: {query}")
+    instances = [
+        "https://vid.puffyan.us", 
+        "https://inv.tux.pizza", 
+        "https://yewtu.be"
+    ]
+    
+    for inst in instances:
+        try:
+            # Try to fetch search results
+            r = requests.get(f"{inst}/api/v1/search?q={query}", timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                results = []
+                for item in data[:limit]:
+                    if item.get('type') == 'video':
+                        # Convert Invidious format to ScanVidz format
+                        results.append({
+                            "title": item['title'],
+                            "link": f"https://www.youtube.com/watch?v={item['videoId']}",
+                            "id": item['videoId'],
+                            "thumbnail": item['videoThumbnails'][0]['url'] if item.get('videoThumbnails') else f"https://i.ytimg.com/vi/{item['videoId']}/hqdefault.jpg",
+                            "duration": "HD", # Invidious formats duration differently, using generic
+                            "views": format_views(item.get('viewCount', 0)),
+                            "channel_name": item.get('author', 'ScanVidz'),
+                            "channel_avatar": get_avatar(item.get('author'))
+                        })
+                if results:
+                    print(f"✅ Fallback Successful via {inst}")
+                    return results
+        except:
+            continue # Try next instance if one fails
+    
+    print("❌ All Fallbacks Failed.")
+    return []
+
+# =================================================================
+# 6. AUTHENTICATION API
 # =================================================================
 
 class UserSignup(BaseModel):
-    name: str
-    email_or_phone: str
-    password: str
+    name: str; email_or_phone: str; password: str
 
 class UserLogin(BaseModel):
-    email_or_phone: str
-    password: str
+    email_or_phone: str; password: str
 
 @app.post("/signup")
 def signup(user: UserSignup, db: Session = Depends(get_db)):
@@ -284,22 +321,15 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db)):
     return {"status": "success", "user": user}
 
 # =================================================================
-# 6. COMMENTS API
+# 7. COMMENTS API
 # =================================================================
 
 class CommentModel(BaseModel):
-    video_id: str
-    user_name: str
-    user_avatar: str
-    text: str
+    video_id: str; user_name: str; user_avatar: str; text: str
 
 @app.post("/comments")
 def post_comment(comment: CommentModel, db: Session = Depends(get_db)):
-    new_comment = Comment(
-        id=str(uuid.uuid4()), video_id=comment.video_id,
-        user_name=comment.user_name, user_avatar=comment.user_avatar,
-        text=comment.text, timestamp="Just now" 
-    )
+    new_comment = Comment(id=str(uuid.uuid4()), video_id=comment.video_id, user_name=comment.user_name, user_avatar=comment.user_avatar, text=comment.text, timestamp="Just now")
     db.add(new_comment); db.commit()
     return {"status": "success", "comment": new_comment}
 
@@ -309,22 +339,14 @@ def get_comments(v: str, db: Session = Depends(get_db)):
     return {"status": "success", "comments": comments[::-1]}
 
 # =================================================================
-# 🔥 7. BUSINESS LOGIC (ALGORITHMS FOR CREATOR ECONOMY)
+# 🔥 8. BUSINESS LOGIC (ALGORITHMS FOR CREATOR ECONOMY)
 # =================================================================
 
 class LikeRequest(BaseModel):
-    user_id: str
-    video_id: str
+    user_id: str; video_id: str
 
 @app.post("/toggle_like")
 def toggle_like(req: LikeRequest, db: Session = Depends(get_db)):
-    """
-    Algorithm: 
-    1. Check if user already liked the video in 'user_likes' table.
-    2. If yes -> Remove like, Decrease count.
-    3. If no -> Add like, Increase count.
-    4. Update 'video_engagement' table (The Asset for Creators).
-    """
     existing_like = db.query(UserLike).filter(UserLike.user_id == req.user_id, UserLike.video_id == req.video_id).first()
     video_stats = db.query(VideoEngagement).filter(VideoEngagement.video_id == req.video_id).first()
     
@@ -334,12 +356,10 @@ def toggle_like(req: LikeRequest, db: Session = Depends(get_db)):
 
     liked = False
     if existing_like:
-        # User wants to UNLIKE
         db.delete(existing_like)
         video_stats.scanvidz_likes = max(0, video_stats.scanvidz_likes - 1)
         liked = False
     else:
-        # User wants to LIKE
         new_like = UserLike(user_id=req.user_id, video_id=req.video_id)
         db.add(new_like)
         video_stats.scanvidz_likes += 1
@@ -351,50 +371,28 @@ def toggle_like(req: LikeRequest, db: Session = Depends(get_db)):
 class ViewRequest(BaseModel):
     video_id: str
 
-# 🔥 NEW API: Increment View Count (Called when video ends)
 @app.post("/increment_view")
 def increment_view(req: ViewRequest, db: Session = Depends(get_db)):
-    """
-    Increments the view count in our own database (ScanVidz Views).
-    """
     video_stats = db.query(VideoEngagement).filter(VideoEngagement.video_id == req.video_id).first()
-    
     if not video_stats:
         video_stats = VideoEngagement(video_id=req.video_id, scanvidz_likes=0, scanvidz_views=1)
         db.add(video_stats)
     else:
         video_stats.scanvidz_views += 1
-    
     db.commit()
     return {"status": "success", "total_views": video_stats.scanvidz_views}
 
 class PurchaseRequest(BaseModel):
-    user_id: str
-    video_id: str
-    quality: str
-    amount: float
+    user_id: str; video_id: str; quality: str; amount: float
 
 @app.post("/buy_video")
 def buy_video(req: PurchaseRequest, db: Session = Depends(get_db)):
-    """
-    Algorithm:
-    1. Verify Payment (Simulation).
-    2. Record purchase in 'user_purchases'.
-    3. Unlock video for download.
-    """
-    new_purchase = UserPurchase(
-        user_id=req.user_id,
-        video_id=req.video_id,
-        quality=req.quality,
-        amount_paid=req.amount,
-        timestamp=time.time()
-    )
-    db.add(new_purchase)
-    db.commit()
+    new_purchase = UserPurchase(user_id=req.user_id, video_id=req.video_id, quality=req.quality, amount_paid=req.amount, timestamp=time.time())
+    db.add(new_purchase); db.commit()
     return {"status": "success", "message": "Payment Successful! Download unlocked."}
 
 # =================================================================
-# 8. VIDEO DATA API
+# 9. VIDEO DATA API (SEARCH & TRENDING with FALLBACK)
 # =================================================================
 
 @app.get("/")
@@ -420,59 +418,65 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
         elif filter == "Music": search_term += " music video"
         elif filter == "Gaming": search_term += " gameplay"
     
-    # 🔥 Aggressive Anti-Block Options
+    # PLAN A: Try YT-DLP First
     ydl_opts = {
         **BASE_OPTS, 
         'extract_flat': True, 
         'noplaylist': True, 
         'limit': limit * page,
-        'ignoreerrors': True  # Don't crash if one video fails
+        'ignoreerrors': True 
     }
     
     results = []
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch{limit*page}:{search_term}", download=False)
-            if 'entries' in info:
+            if 'entries' in info and len(info['entries']) > 0:
                 start = (page - 1) * limit
                 for vid in info['entries'][start : start+limit]:
                     if vid:
                         results.append({"title": vid.get('title'), "link": vid.get('url') or f"https://www.youtube.com/watch?v={vid.get('id')}", "id": vid.get('id'), "thumbnail": vid.get('thumbnail') or f"https://i.ytimg.com/vi/{vid.get('id')}/hqdefault.jpg", "duration": vid.get('duration_string') or "HD", "views": format_views(vid.get('view_count')), "channel_name": vid.get('uploader') or "ScanVidz", "channel_avatar": get_avatar(vid.get('uploader'))})
-    except Exception as e: return {"status": "error", "message": str(e), "results": []}
+                
+                # If Plan A works, return results
+                if len(results) > 0:
+                    return {"status": "success", "results": results, "page": page}
+    except Exception as e:
+        print(f"Plan A (YT-DLP) Failed: {e}")
+
+    # PLAN B: Fallback to Invidious if Plan A failed or returned 0 results
+    if not results:
+        results = fallback_search_invidious(search_term, limit)
+    
     return {"status": "success", "results": results, "page": page}
 
-# 🔥 UPDATED META API: Returns Internal ScanVidz Likes & Views
 @app.get("/meta")
 def get_meta(v: str, user_id: str = None, db: Session = Depends(get_db)):
     if not v: return {"status": "error"}
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
     
-    # 1. Fetch Internal Stats (Business Data)
     stats = db.query(VideoEngagement).filter(VideoEngagement.video_id == video_id).first()
     total_likes = stats.scanvidz_likes if stats else 0
     total_views = stats.scanvidz_views if stats else 0
     
-    # 2. Check if specific user liked it
     is_liked = False
     if user_id:
         user_like = db.query(UserLike).filter(UserLike.user_id == user_id, UserLike.video_id == video_id).first()
         is_liked = True if user_like else False
 
-    # 3. Get Cache for other details
     cached_video = db.query(VideoCache).filter(VideoCache.video_id == video_id).first()
     subs = cached_video.subs if cached_video and cached_video.subs != "Loading..." else "0"
 
     return {
         "status": "success",
         "meta": {
-            "likes": total_likes, # ScanVidz Internal Likes
-            "views": total_views, # ScanVidz Internal Views
+            "likes": total_likes, 
+            "views": total_views, 
             "subs": subs,
-            "is_liked": is_liked # Boolean for frontend
+            "is_liked": is_liked
         }
     }
 
-# 🔥 FORMATS API WITH PRICING ENGINE
+# 🔥 FORMATS API
 @app.get("/formats")
 def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if not v: return {"status": "error"}
@@ -487,8 +491,6 @@ def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
-            
-            # Update cache in background
             background_tasks.add_task(update_video_cache_background, video_id, info, SessionLocal)
             
             for f in info.get('formats', []):
@@ -497,27 +499,18 @@ def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends
                     if height < 144: continue
                     size_mb = f.get('filesize', 0) / (1024 * 1024) if f.get('filesize') else 0
                     
-                    # 🔥 DYNAMIC PRICING ALGORITHM
                     price = 0
                     if height == 1080: price = 5
-                    elif height == 1440: price = 15 # 2K
-                    elif height == 2160: price = 40 # 4K
-                    elif height == 4320: price = 100 # 8K
+                    elif height == 1440: price = 15 
+                    elif height == 2160: price = 40 
+                    elif height == 4320: price = 100 
                     
                     quality_label = f"{height}p"
                     if price > 0: quality_label += f" (Premium ₹{price})"
                     else: quality_label += " (Free)"
 
                     needs_merge = height >= 1080
-                    formats_list.append({
-                        "format_id": f['format_id'],
-                        "quality": quality_label,
-                        "ext": "mp4",
-                        "size": f"{size_mb:.1f} MB" if size_mb > 0 else "High Quality",
-                        "height": height,
-                        "needs_merge": needs_merge,
-                        "price": price # Sent to frontend to trigger Payment
-                    })
+                    formats_list.append({"format_id": f['format_id'], "quality": quality_label, "ext": "mp4", "size": f"{size_mb:.1f} MB" if size_mb > 0 else "High Quality", "height": height, "needs_merge": needs_merge, "price": price})
             
             formats_list.sort(key=lambda x: x['height'], reverse=True)
             unique_formats = []
@@ -529,7 +522,7 @@ def get_formats(v: str, background_tasks: BackgroundTasks, db: Session = Depends
     except Exception as e: return {"status": "error", "message": str(e)}
 
 # =================================================================
-# 🔥 9. DOWNLOAD API (11-in-1 Engine + PAYMENT WALL)
+# 🔥 10. DOWNLOAD API (11-in-1 Engine + PAYMENT WALL)
 # =================================================================
 
 @app.get("/download")
@@ -541,22 +534,17 @@ def download_video(v: str, format_id: str, user_id: str = None, background_tasks
 
     # 🚀 SECURITY: CHECK PAYMENT STATUS
     try:
-        # Quick extract to check quality
         with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
             info = ydl.extract_info(video_url, download=False)
             target_format = next((f for f in info['formats'] if f['format_id'] == format_id), None)
             
             if target_format:
                 height = target_format.get('height', 0)
-                
-                # Paywall Logic
-                if height > 720: # Premium Content
+                if height > 720: 
                     if not user_id:
                         return JSONResponse(status_code=401, content={"status": "error", "message": "Login Required for Premium Download"})
                     
-                    # Verify in DB
                     purchase = db.query(UserPurchase).filter(UserPurchase.user_id == user_id, UserPurchase.video_id == video_id, UserPurchase.quality == f"{height}p").first()
-                    # Also check generic purchase for this video
                     if not purchase:
                         purchase = db.query(UserPurchase).filter(UserPurchase.user_id == user_id, UserPurchase.video_id == video_id).first()
 
@@ -610,6 +598,7 @@ def download_video(v: str, format_id: str, user_id: str = None, background_tasks
 
 @app.get("/trending")
 def get_trending():
+    # Attempt Plan A
     ydl_opts = {**BASE_OPTS, 'extract_flat': True, 'limit': 20}
     results = []
     try:
@@ -619,12 +608,15 @@ def get_trending():
                 for vid in info['entries']:
                     if vid:
                         results.append({"title": vid.get('title'), "link": vid.get('url'), "thumbnail": vid.get('thumbnail'), "duration": "Hot", "views": format_views(vid.get('view_count')), "channel_name": vid.get('uploader'), "channel_avatar": get_avatar(vid.get('uploader'))})
-    except: return search_videos(q="viral", limit=20)
-    return {"status": "success", "videos": results}
+                if results: return {"status": "success", "videos": results}
+    except: pass
+    
+    # 🔥 PLAN B: Fallback to Invidious
+    return {"status": "success", "videos": fallback_search_invidious("trending", limit=20)}
 
 # 🔥 AUTO KEEP-ALIVE SYSTEM
 def keep_server_alive():
-    url = "https://scanvidz-docker.onrender.com/ping" # Updated for Docker Service
+    url = "https://scanvidz-docker.onrender.com/ping" # Changed to Docker URL
     while True:
         try:
             time.sleep(840)
