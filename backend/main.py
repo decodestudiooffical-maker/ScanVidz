@@ -109,7 +109,7 @@ else:
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
-# 🔥 FIX: Global User Agent to prevent 403 Forbidden Errors
+# 🔥 FIX: Global User Agent to prevent 403 Forbidden (0 MB Error)
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 
 # 🔥 GLOBAL YT-DLP OPTIONS (Anti-Block)
@@ -286,6 +286,42 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
     
     return {"status": "success", "results": results, "page": page}
 
+# 🔥 NEW: METADATA API (Enables Parallel Loading for Likes/Subs)
+# This allows the frontend to fetch Likes/Subs separately from download formats
+@app.get("/meta")
+def get_meta(v: str, db: Session = Depends(get_db)):
+    if not v: return {"status": "error"}
+    video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+
+    # Check Cache First
+    cached_video = db.query(VideoCache).filter(VideoCache.video_id == video_id).first()
+    if cached_video:
+        return {
+            "status": "success",
+            "meta": {
+                "likes": cached_video.likes,
+                "views": cached_video.views,
+                "subs": cached_video.subs
+            }
+        }
+    
+    # If not in cache, fetch light metadata
+    try:
+        ydl_opts = {**COMMON_OPTS, 'extract_flat': True} # Fast fetch
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=False)
+            return {
+                "status": "success",
+                "meta": {
+                    "likes": info.get('like_count', 0),
+                    "views": format_views(info.get('view_count', 0)),
+                    "subs": "Loading..." 
+                }
+            }
+    except:
+        return {"status": "error"}
+
 # 🔥 SUPER FAST FORMATS API (DB CACHING + REAL DATA)
 @app.get("/formats")
 def get_formats(v: str, db: Session = Depends(get_db)):
@@ -397,7 +433,7 @@ def get_formats(v: str, db: Session = Depends(get_db)):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# 🔥 UPDATED DOWNLOAD API: STREAMING MODE (FIXED 0 MB ISSUE)
+# 🔥 UPDATED DOWNLOAD API: STREAMING + HEADER FIX (SOLVES 0 MB ISSUE)
 @app.get("/download")
 def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, merge: str = "false"):
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
@@ -413,7 +449,7 @@ def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, me
             return {"status": "error", "message": str(e)}
 
     # 2. High Quality Streaming (Server processes and streams instantly)
-    # 🔥 FIX: Added USER_AGENT to prevent 403 Forbidden (0 MB File)
+    # 🔥 FIXED: Added HEADERS to prevent 403 Forbidden (0 MB)
     try:
         def stream_generator():
             # Get the direct URLs for video and audio
@@ -438,14 +474,16 @@ def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, me
             if not v_url:
                 raise Exception("Could not find video stream")
 
-            # Construct FFmpeg command for on-the-fly merging
+            # 🔥 FFmpeg Command with HEADERS [Critically Important for 0 MB Fix]
             cmd = [
                 FFMPEG_PATH,
+                '-loglevel', 'error',
                 '-user_agent', USER_AGENT, # 👈 THIS PREVENTS 0 MB ERROR
                 '-i', v_url,
             ]
             
             if a_url:
+                cmd.extend(['-headers', f'User-Agent: {USER_AGENT}']) 
                 cmd.extend(['-i', a_url])
             
             cmd.extend([
