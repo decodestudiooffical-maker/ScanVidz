@@ -109,13 +109,16 @@ else:
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
+# 🔥 FIX: Global User Agent to prevent 403 Forbidden Errors
+USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+
 # 🔥 GLOBAL YT-DLP OPTIONS (Anti-Block)
 COMMON_OPTS = {
     'quiet': True,
     'no_warnings': True,
     'nocheckcertificate': True,
     'http_headers': {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'User-Agent': USER_AGENT,
     }
 }
 
@@ -394,7 +397,7 @@ def get_formats(v: str, db: Session = Depends(get_db)):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# 🔥 UPDATED DOWNLOAD API: STREAMING MODE (NO TIMEOUT ERROR)
+# 🔥 UPDATED DOWNLOAD API: STREAMING MODE (FIXED 0 MB ISSUE)
 @app.get("/download")
 def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, merge: str = "false"):
     video_id = v.split("v=")[1].split("&")[0] if "v=" in v else v
@@ -410,7 +413,7 @@ def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, me
             return {"status": "error", "message": str(e)}
 
     # 2. High Quality Streaming (Server processes and streams instantly)
-    # This prevents the 50s timeout by sending data chunks as they are merged
+    # 🔥 FIX: Added USER_AGENT to prevent 403 Forbidden (0 MB File)
     try:
         def stream_generator():
             # Get the direct URLs for video and audio
@@ -438,15 +441,13 @@ def download_video(v: str, format_id: str, background_tasks: BackgroundTasks, me
             # Construct FFmpeg command for on-the-fly merging
             cmd = [
                 FFMPEG_PATH,
+                '-user_agent', USER_AGENT, # 👈 THIS PREVENTS 0 MB ERROR
                 '-i', v_url,
             ]
             
             if a_url:
                 cmd.extend(['-i', a_url])
-            else:
-                # If no separate audio, just input video (might be muxed already)
-                pass
-                
+            
             cmd.extend([
                 '-c:v', 'copy',       # Copy video stream (No re-encoding = Super Fast)
                 '-c:a', 'aac',        # Ensure audio is AAC
