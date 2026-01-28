@@ -56,6 +56,9 @@ function WatchContent() {
   const [subCount, setSubCount] = useState("0"); // Changed from "Loading..."
   const [views, setViews] = useState(searchParams.get('views') || '0'); // Changed from "Loading..."
   
+  // 🔥 View Count Lock to prevent spamming
+  const [viewCounted, setViewCounted] = useState(false);
+
   // 🔥 REAL COMMENTS STATE (DB Connected)
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState('');
@@ -142,6 +145,7 @@ function WatchContent() {
   useEffect(() => {
       if (videoId) {
           setLoadingFormats(true); // Ensure spinner starts
+          setViewCounted(false); // Reset view count logic
           
           // Fetch Formats (Prices included)
           fetch(`https://scanvidz-default.onrender.com/formats?v=${videoId}`)
@@ -155,6 +159,7 @@ function WatchContent() {
             .finally(() => setLoadingFormats(false)); // Stop spinner when done
 
           // 🔥 Fetch Metadata (ScanVidz Likes)
+          // We pass user_id to check if "I" liked it
           const userIdParam = user ? `&user_id=${user.id}` : '';
           fetch(`https://scanvidz-default.onrender.com/meta?v=${videoId}${userIdParam}`)
             .then(res => res.json())
@@ -162,8 +167,13 @@ function WatchContent() {
                 if(data.status === 'success') {
                     setLikes(data.meta.likes || 0); // Internal Count
                     setIsLiked(data.meta.is_liked); // My Status
-                    setSubCount(data.meta.subs || "0"); // YouTube Subs
-                    setViews(data.meta.views || "0");
+                    
+                    // 🔥 FIX: Explicit check for 'Loading...'
+                    const sCount = data.meta.subs;
+                    setSubCount((sCount === "Loading..." || !sCount) ? "0" : sCount);
+                    
+                    const vCount = data.meta.views;
+                    setViews((vCount === "Loading..." || !vCount) ? "0" : vCount);
                 }
             });
       }
@@ -222,6 +232,9 @@ function WatchContent() {
       if (loadingFormats) return; // Ignore click if loading
       if(formats.length > 0) {
           setShowDownload(true);
+      } else {
+          // If no formats (empty array), trigger retry or show subtle msg
+          alert("Formats unavailable. Please refresh.");
       }
   };
 
@@ -407,8 +420,28 @@ function WatchContent() {
       setTimeout(() => { event.target.unMute(); }, 1000);
   };
 
+  // 🔥 AUTO VIEW COUNT LOGIC (Triggers when video ends)
   const onPlayerStateChange = (event: any) => {
       setPlayerState(event.data);
+      
+      // 0 = ENDED state
+      if (event.data === 0 && !viewCounted) { 
+         // Call Backend to increment view
+         fetch('https://scanvidz-default.onrender.com/increment_view', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ video_id: videoId })
+         })
+         .then(res => res.json())
+         .then(data => {
+             if(data.status === 'success') {
+                 setViews(data.total_views); // Update UI instantly
+                 setViewCounted(true); // Prevent double count in same session
+             }
+         })
+         .catch(err => console.log("View Increment Error:", err));
+      }
+
       if (event.data === 1) { 
          const player = event.target;
          player.isMuted().then((muted: boolean) => { if(muted) player.unMute(); });
@@ -477,7 +510,11 @@ function WatchContent() {
                  <div className="flex flex-wrap items-center justify-between mt-4 pb-4 border-b border-gray-800 gap-4">
                     <div className="flex items-center gap-3">
                        <img src={channelAvatar} className="w-10 h-10 rounded-full bg-gray-700 object-cover" onError={(e:any) => e.target.src=`https://ui-avatars.com/api/?background=random&name=${channelName}`} />
-                       <div><h3 className="font-bold text-sm text-gray-100">{channelName}</h3><p className="text-xs text-gray-400">{subCount} subscribers</p></div>
+                       <div>
+                           <h3 className="font-bold text-sm text-gray-100">{channelName}</h3>
+                           {/* 🔥 FIX: Default to 0 instead of Loading */}
+                           <p className="text-xs text-gray-400">{(subCount === 'Loading...' || !subCount) ? '0' : subCount} subscribers</p>
+                       </div>
                        <button onClick={handleSubscribe} className={`px-5 py-2 rounded-full text-sm font-bold ml-4 transition ${isSubscribed ? 'bg-[#272727] text-gray-300' : 'bg-white text-black hover:bg-gray-200'}`}>{isSubscribed ? 'Subscribed 🔔' : 'Subscribe'}</button>
                     </div>
                     <div className="flex items-center gap-2">
@@ -505,7 +542,8 @@ function WatchContent() {
                     </div>
                  </div>
                  <div className="mt-4 bg-[#272727]/50 border border-gray-800 p-3 rounded-xl text-sm text-gray-300 hover:bg-[#272727] transition cursor-pointer">
-                    <p className="font-bold text-white mb-1">{views} views • Just now</p>
+                    {/* 🔥 FIX: Default to 0 views if loading */}
+                    <p className="font-bold text-white mb-1">{(views === 'Loading...' || !views) ? '0' : views} views • Just now</p>
                     <p>Watching on ScanVidz Premium. No Ads. No Tracking.</p>
                  </div>
                  
@@ -535,75 +573,36 @@ function WatchContent() {
            <div className="w-full lg:w-[420px] p-4 lg:p-6"><div className="flex items-center justify-between mb-4"><h3 className="font-bold text-lg">Up Next</h3><span className="text-xs text-gray-400">Autoplay On</span></div><div className="flex flex-col gap-3">{related.map((vid, idx) => (<div key={idx} onClick={() => playRelated(vid)} className="flex gap-2 cursor-pointer group hover:bg-[#1f1f1f] p-1 rounded-lg transition"><div className="relative w-[168px] h-[94px] bg-gray-800 rounded-lg overflow-hidden flex-shrink-0 border border-gray-800 group-hover:border-gray-600"><img src={vid.thumbnail} className="w-full h-full object-cover" onError={(e:any) => e.target.src='https://via.placeholder.com/168x94'}/><span className="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1 rounded font-medium">{vid.duration}</span></div><div className="flex flex-col flex-1 py-1"><h4 className="text-sm font-semibold line-clamp-2 leading-tight text-gray-100 group-hover:text-blue-400 transition">{vid.title}</h4><div className="mt-auto"><p className="text-xs text-gray-400 hover:text-white transition">{vid.channel_name || 'ScanVidz'}</p><p className="text-xs text-gray-500">{vid.views} views</p></div></div></div>))}</div></div>
        </div>
 
-       {/* --- DOWNLOAD MODAL --- */}
        {showDownload && (
           <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
              <div className="bg-[#1f1f1f] border border-gray-700 p-6 rounded-2xl max-w-sm w-full shadow-2xl">
-                <div className="flex justify-between items-center mb-6">
-                   <h3 className="font-bold text-xl">Select Quality</h3>
-                   <button onClick={() => setShowDownload(false)} className="text-gray-400 hover:text-white bg-gray-800 rounded-full w-8 h-8 flex items-center justify-center">✕</button>
-                </div>
+                <div className="flex justify-between items-center mb-6"><h3 className="font-bold text-xl">Select Quality</h3><button onClick={() => setShowDownload(false)} className="text-gray-400 hover:text-white bg-gray-800 rounded-full w-8 h-8 flex items-center justify-center">✕</button></div>
                 <div className="space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
                    {formats.length > 0 ? formats.map((fmt: any, i) => (
                       <button key={i} onClick={() => initiateDownload(fmt)} className="w-full flex justify-between items-center bg-[#272727] hover:bg-blue-600 hover:text-white p-4 rounded-xl transition group">
-                          <div className="flex flex-col items-start">
-                             <div className="flex items-center gap-2">
-                                <span className="font-bold text-lg">{fmt.quality.split(' ')[0]}</span>
-                                {fmt.price > 0 ? (
-                                    <span className="bg-yellow-500 text-black text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">PREMIUM ₹{fmt.price}</span>
-                                ) : (
-                                    <span className="bg-green-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">FREE</span>
-                                )}
-                             </div>
-                             <span className="text-xs text-gray-400 group-hover:text-blue-200 uppercase">{fmt.ext}</span>
-                          </div>
-                          <span className="text-sm font-mono bg-black/30 px-2 py-1 rounded">{fmt.size}</span>
+                          <div className="flex flex-col items-start"><div className="flex items-center gap-2"><span className="font-bold text-lg">{fmt.quality.split(' ')[0]}</span>{fmt.price > 0 ? (<span className="bg-yellow-500 text-black text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">PREMIUM ₹{fmt.price}</span>) : (<span className="bg-green-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">FREE</span>)}</div><span className="text-xs text-gray-400 group-hover:text-blue-200 uppercase">{fmt.ext}</span></div><span className="text-sm font-mono bg-black/30 px-2 py-1 rounded">{fmt.size}</span>
                       </button>
-                   )) : (
-                      <div className="text-center text-gray-400 py-4">No MP4 formats found.</div>
-                   )}
+                   )) : (<div className="text-center text-gray-400 py-4">No MP4 formats found.</div>)}
                 </div>
              </div>
           </div>
        )}
 
-       {/* 🔥 PAYMENT MODAL */}
        {showPayment && selectedPremiumFormat && (
            <div className="fixed inset-0 bg-black/90 z-[110] flex items-center justify-center p-4 backdrop-blur-md">
                <div className="bg-[#181818] border border-yellow-600/50 p-8 rounded-3xl max-w-md w-full shadow-[0_0_50px_rgba(234,179,8,0.2)] text-center relative">
                    <button onClick={() => setShowPayment(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-xl">✕</button>
-                   <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                       <span className="text-3xl">💎</span>
-                   </div>
+                   <div className="w-16 h-16 bg-yellow-500/10 rounded-full flex items-center justify-center mx-auto mb-4"><span className="text-3xl">💎</span></div>
                    <h2 className="text-2xl font-bold text-white mb-2">Premium Download</h2>
                    <p className="text-gray-400 text-sm mb-6">Unlock <span className="text-yellow-400 font-bold">{selectedPremiumFormat.quality.split(' ')[0]}</span> Ultra HD quality.</p>
-                   
-                   <div className="bg-black/40 p-4 rounded-xl border border-gray-800 mb-6">
-                       <div className="flex justify-between items-center mb-2">
-                           <span className="text-gray-400">Video Quality</span>
-                           <span className="font-bold">{selectedPremiumFormat.quality.split(' ')[0]}</span>
-                       </div>
-                       <div className="flex justify-between items-center text-xl font-bold text-green-400 border-t border-gray-700 pt-2 mt-2">
-                           <span>Total Amount</span>
-                           <span>₹{selectedPremiumFormat.price}</span>
-                       </div>
-                   </div>
-
-                   <button onClick={handlePaymentSuccess} className="w-full bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-black font-bold py-3.5 rounded-xl text-lg shadow-lg transform hover:scale-[1.02] transition-all">
-                       Pay ₹{selectedPremiumFormat.price} & Download
-                   </button>
+                   <div className="bg-black/40 p-4 rounded-xl border border-gray-800 mb-6"><div className="flex justify-between items-center mb-2"><span className="text-gray-400">Video Quality</span><span className="font-bold">{selectedPremiumFormat.quality.split(' ')[0]}</span></div><div className="flex justify-between items-center text-xl font-bold text-green-400 border-t border-gray-700 pt-2 mt-2"><span>Total Amount</span><span>₹{selectedPremiumFormat.price}</span></div></div>
+                   <button onClick={handlePaymentSuccess} className="w-full bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-black font-bold py-3.5 rounded-xl text-lg shadow-lg transform hover:scale-[1.02] transition-all">Pay ₹{selectedPremiumFormat.price} & Download</button>
                    <p className="text-xs text-gray-500 mt-4 flex items-center justify-center gap-1">🔒 Secure Payment via UPI</p>
                </div>
            </div>
        )}
 
-       {toastMsg && (
-         <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-full shadow-2xl z-[150] flex items-center gap-3 animate-bounce">
-            <span className="text-xl">⬇</span>
-            <span className="font-bold text-sm md:text-base whitespace-nowrap">{toastMsg}</span>
-         </div>
-       )}
-
+       {toastMsg && (<div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-full shadow-2xl z-[150] flex items-center gap-3 animate-bounce"><span className="text-xl">⬇</span><span className="font-bold text-sm md:text-base whitespace-nowrap">{toastMsg}</span></div>)}
     </div>
   );
 }

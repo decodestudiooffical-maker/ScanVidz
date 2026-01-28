@@ -186,7 +186,7 @@ def cleanup_file(path: str):
         print(f"⚠️ Error deleting file: {e}")
 
 def format_views(count):
-    if not count: return "N/A"
+    if not count: return "0"
     try:
         count = int(count)
         if count >= 1000000: return f"{count / 1000000:.1f}M"
@@ -208,11 +208,11 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
         real_likes = info.get('like_count', 0)
         real_views = format_views(info.get('view_count', 0))
         real_subs = format_views(info.get('channel_follower_count', 0))
-        if real_subs == "N/A" or real_subs == "0": real_subs = "1M+"
+        if real_subs == "N/A" or real_subs == "0": real_subs = "0"
 
         if cached_video:
+            # We don't overwrite views here anymore for the frontend, but we keep youtube stats for reference
             cached_video.likes = str(real_likes)
-            cached_video.views = str(real_views)
             cached_video.subs = str(real_subs)
             cached_video.updated_at = time.time()
         else:
@@ -315,7 +315,7 @@ def toggle_like(req: LikeRequest, db: Session = Depends(get_db)):
     video_stats = db.query(VideoEngagement).filter(VideoEngagement.video_id == req.video_id).first()
     
     if not video_stats:
-        video_stats = VideoEngagement(video_id=req.video_id, scanvidz_likes=0)
+        video_stats = VideoEngagement(video_id=req.video_id, scanvidz_likes=0, scanvidz_views=0)
         db.add(video_stats)
 
     liked = False
@@ -333,6 +333,26 @@ def toggle_like(req: LikeRequest, db: Session = Depends(get_db)):
     
     db.commit()
     return {"status": "success", "liked": liked, "total_likes": video_stats.scanvidz_likes}
+
+class ViewRequest(BaseModel):
+    video_id: str
+
+# 🔥 NEW API: Increment View Count (Called when video ends)
+@app.post("/increment_view")
+def increment_view(req: ViewRequest, db: Session = Depends(get_db)):
+    """
+    Increments the view count in our own database (ScanVidz Views).
+    """
+    video_stats = db.query(VideoEngagement).filter(VideoEngagement.video_id == req.video_id).first()
+    
+    if not video_stats:
+        video_stats = VideoEngagement(video_id=req.video_id, scanvidz_likes=0, scanvidz_views=1)
+        db.add(video_stats)
+    else:
+        video_stats.scanvidz_views += 1
+    
+    db.commit()
+    return {"status": "success", "total_views": video_stats.scanvidz_views}
 
 class PurchaseRequest(BaseModel):
     user_id: str
@@ -399,7 +419,7 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
     except Exception as e: return {"status": "error", "message": str(e), "results": []}
     return {"status": "success", "results": results, "page": page}
 
-# 🔥 UPDATED META API: Returns Internal ScanVidz Likes instead of YouTube
+# 🔥 UPDATED META API: Returns Internal ScanVidz Likes & Views
 @app.get("/meta")
 def get_meta(v: str, user_id: str = None, db: Session = Depends(get_db)):
     if not v: return {"status": "error"}
@@ -408,6 +428,7 @@ def get_meta(v: str, user_id: str = None, db: Session = Depends(get_db)):
     # 1. Fetch Internal Stats (Business Data)
     stats = db.query(VideoEngagement).filter(VideoEngagement.video_id == video_id).first()
     total_likes = stats.scanvidz_likes if stats else 0
+    total_views = stats.scanvidz_views if stats else 0
     
     # 2. Check if specific user liked it
     is_liked = False
@@ -417,13 +438,13 @@ def get_meta(v: str, user_id: str = None, db: Session = Depends(get_db)):
 
     # 3. Get Cache for other details
     cached_video = db.query(VideoCache).filter(VideoCache.video_id == video_id).first()
-    subs = cached_video.subs if cached_video else "Loading..."
+    subs = cached_video.subs if cached_video and cached_video.subs != "Loading..." else "0"
 
     return {
         "status": "success",
         "meta": {
             "likes": total_likes, # ScanVidz Internal Likes
-            "views": cached_video.views if cached_video else "0",
+            "views": total_views, # ScanVidz Internal Views
             "subs": subs,
             "is_liked": is_liked # Boolean for frontend
         }
