@@ -6,7 +6,7 @@ import YouTube from 'react-youtube';
 import UserMenu from '@/components/UserMenu'; 
 
 // =========================================================
-// 🔥 GLOBAL CONFIGURATION & API
+// 🔥 GLOBAL CONFIGURATION & API CONSTANTS
 // =========================================================
 
 const API_BASE_URL = "https://scanvidz-backend.onrender.com";
@@ -15,8 +15,10 @@ const API_BASE_URL = "https://scanvidz-backend.onrender.com";
 // 🛠️ HELPER FUNCTIONS
 // =========================================================
 
-// 1. Format Seconds to MM:SS or HH:MM:SS
-// This helps in displaying the video duration neatly
+/**
+ * Format Seconds to MM:SS or HH:MM:SS
+ * Used for the video player timer and duration display.
+ */
 const formatTime = (seconds: number) => {
     if (isNaN(seconds)) return "00:00";
     
@@ -31,7 +33,10 @@ const formatTime = (seconds: number) => {
     return `${mm}:${ss}`;
 };
 
-// 2. Map YouTube Quality Tags to Readable Text (Internal Use)
+/**
+ * Map YouTube Quality Tags to Readable Text
+ * Although the menu is hidden, we use this for internal logging or toasts.
+ */
 const getQualityLabel = (q: string) => {
     switch(q) {
         case 'highres': return '4K+ (Original)';
@@ -59,13 +64,13 @@ function WatchContent() {
   // -------------------------------------------------------
   // 1. DATA EXTRACTION FROM URL
   // -------------------------------------------------------
-  // Extracts video details safely from the URL query parameters
+  // Extracts video details safely from the URL query parameters to avoid crashes
   const videoId = (searchParams.get('v') || '').split('v=')[1] || searchParams.get('v');
   const title = searchParams.get('title') || 'Video Player';
   const thumbnail = searchParams.get('thumbnail') || '';
   const durationParam = searchParams.get('duration') || '';
   
-  // Channel Handling
+  // Channel Handling - extracting name and avatar
   const rawChannel = searchParams.get('channel');
   const channelName = rawChannel && rawChannel !== 'undefined' ? rawChannel : 'ScanVidz Creator';
   const channelAvatar = searchParams.get('avatar') || `https://ui-avatars.com/api/?background=random&name=${channelName}`;
@@ -82,14 +87,13 @@ function WatchContent() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(100);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true); // Start Muted for better autoplay/quality success
   const [showControls, setShowControls] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isFullscreenMode, setIsFullscreenMode] = useState(false);
 
-  // --- Quality State (Now purely internal for enforcement) ---
-  // We removed the menu, but we keep this to track what is playing
+  // --- Quality State (Internal for Force Logic) ---
   const [currentQuality, setCurrentQuality] = useState('auto');
   
   // --- Data & Recommendation States ---
@@ -100,7 +104,10 @@ function WatchContent() {
   // 🔥 Autoplay Toggle State (Default ON)
   const [isAutoplayEnabled, setIsAutoplayEnabled] = useState(true);
 
-  // --- Download & Payment Logic (Backend Ready - UI Hidden) ---
+  // 🔥 Video Error State (For Restricted/Blocked Videos)
+  const [isVideoError, setIsVideoError] = useState(false);
+
+  // --- Download & Payment Logic (Backend Ready - Button Hidden) ---
   const [showDownload, setShowDownload] = useState(false);
   const [formats, setFormats] = useState([]);
   const [loadingFormats, setLoadingFormats] = useState(true);
@@ -216,34 +223,30 @@ function WatchContent() {
       }
   };
 
-  // 🔥 H. QUALITY ENFORCER (No Menu - Auto High Res)
-  // This function forces the player to jump to the highest possible quality
+  // 🔥 H. POWERFUL QUALITY ENFORCER (Fix for Mobile & Laptop)
+  // This logic runs on load and play to force the player to the highest available quality.
   const enforceHighQuality = (targetPlayer: any) => {
       if (!targetPlayer) return;
-
-      // Get all available levels (e.g., ['hd1080', 'hd720', 'large', ...])
+      
       const levels = targetPlayer.getAvailableQualityLevels();
       
       if (levels && levels.length > 0) {
-          // Usually, the first element is the highest quality (e.g., 'hd1080' or 'highres')
-          const bestQuality = levels[0];
+          // 1. Prioritize HD/4K Explicitly
+          let bestQuality = levels.find((q: string) => q === 'highres' || q === 'hd2160' || q === 'hd1440' || q === 'hd1080');
+          // If 1080p+ not found, take the first available (usually the highest)
+          if (!bestQuality) bestQuality = levels[0];
+
           const currentQ = targetPlayer.getPlaybackQuality();
 
-          // Only apply if we aren't already on the best quality
+          // 2. Apply Force if not already on best
           if (currentQ !== bestQuality) {
-              console.log(`🚀 Forcing High Quality: ${bestQuality} (was ${currentQ})`);
-              
-              // 1. Suggest Quality
+              console.log(`🚀 ScanVidz Optimizer: Forcing Quality to ${bestQuality}`);
               targetPlayer.setPlaybackQuality(bestQuality);
               
-              // 2. Force Reload logic to trick Mobile/Laptop players
-              // We reload the video at the *current time* with the *best quality* suggestion
-              const currTime = targetPlayer.getCurrentTime();
-              // Prevent infinite loops by checking if time is very start (0)
-              if (currTime < 1) {
-                  // Only force hard reload at start to lock quality
-                  // For mid-stream, we rely on setPlaybackQuality to avoid buffering glitches
-                  targetPlayer.setOption && targetPlayer.setOption("captions", "track", {}); 
+              // 3. Tiny Seek Hack: Forces buffer flush on mobile
+              // Only do this if we are at the very start to avoid skipping user content
+              if ((currentQ === 'small' || currentQ === 'medium') && targetPlayer.getCurrentTime() < 2) {
+                  targetPlayer.seekTo(0.1, true); 
               }
               
               setCurrentQuality(bestQuality);
@@ -284,6 +287,7 @@ function WatchContent() {
   // -------------------------------------------------------
 
   // Custom Options to HIDE everything & Force Desktop Mode behavior
+  // Ideas 1, 4, 8, 10 applied here
   const opts = {
       height: '100%',
       width: '100%',
@@ -296,8 +300,10 @@ function WatchContent() {
           rel: 0,
           showinfo: 0,
           iv_load_policy: 3,
-          playsinline: 1, // Helps with iOS styling
-          cc_load_policy: 0, // No captions by default
+          playsinline: 1, // Idea 4: Helps with mobile control
+          mute: 1, // Idea 8: Start Muted for better autoplay
+          vq: 'hd1080', // Idea 10: URL parameter for quality request
+          start: 1 // Idea 2: Start 1s in to skip potential low-res intro buffer
       },
   };
 
@@ -308,27 +314,27 @@ function WatchContent() {
       event.target.playVideo();
       setIsPlaying(true);
       
-      // 🔥 AGGRESSIVE QUALITY FORCE ON LOAD
-      // We immediately try to set the highest resolution found
+      // 🔥 Immediate Quality Force
       enforceHighQuality(event.target);
 
-      // Fix Browser Autoplay Policy
+      // Idea 3: Double Check Delay (Unmute after a moment)
       setTimeout(() => { 
           event.target.unMute(); 
           setVolume(event.target.getVolume());
-          // Check quality again after a second to ensure it stuck
+          setIsMuted(false);
+          // Check quality again to ensure it stuck
           enforceHighQuality(event.target);
-      }, 1000);
+      }, 1500);
   };
 
   const onPlayerStateChange = (event: any) => {
       setPlayerState(event.data);
       
       // 1 = Playing
-      if (event.data === 1) {
-          setIsPlaying(true);
-          // 🔥 Keep enforcing quality when playback starts
-          enforceHighQuality(event.target);
+      if (event.data === 1) { 
+          setIsPlaying(true); 
+          setIsVideoError(false); // Reset error if it plays
+          enforceHighQuality(event.target); // Force again on play
       }
       
       // 2 = Paused
@@ -337,6 +343,7 @@ function WatchContent() {
       // 0 = Ended (View Count Logic)
       if (event.data === 0 && !viewCounted) { 
          setIsPlaying(false);
+         // Call Backend to increment view
          fetch(`${API_BASE_URL}/increment_view`, {
              method: 'POST',
              headers: { 'Content-Type': 'application/json' },
@@ -350,6 +357,17 @@ function WatchContent() {
              }
          })
          .catch(err => console.log("View Error:", err));
+      }
+  };
+
+  // 🔥 ERROR DETECTOR HANDLER (Video Unavailable Logic)
+  const onPlayerError = (event: any) => {
+      console.log("Player Error Code:", event.data);
+      // 100: Video not found/private
+      // 101/150: Video playback blocked by owner on embedded players
+      // This catches the F1/Sony/T-Series restriction
+      if ([100, 101, 150].includes(event.data)) {
+          setIsVideoError(true);
       }
   };
 
@@ -383,9 +401,10 @@ function WatchContent() {
   // Fetch Video Metadata & Formats
   useEffect(() => {
       if (videoId) {
+          setIsVideoError(false); // Reset error state on new video
           setViewCounted(false);
 
-          // Get Formats (for background logic)
+          // Get Formats (for background logic - button hidden)
           fetch(`${API_BASE_URL}/formats?v=${videoId}`)
             .then(res => res.json())
             .then(data => { if(data.status === 'success') setFormats(data.formats); })
@@ -422,7 +441,7 @@ function WatchContent() {
       }
   }, [title]);
 
-  // Autoplay Countdown Logic (Respects Toggle)
+  // Autoplay Countdown Logic (Respects Toggle State)
   useEffect(() => {
       let timer: any;
       if (playerState === 0 && related.length > 0 && isAutoplayEnabled) {
@@ -589,7 +608,6 @@ function WatchContent() {
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col font-sans">
        
-       {/* HEADER */}
        <header className="sticky top-0 z-50 bg-[#0f0f0f]/95 backdrop-blur-md px-4 h-16 flex items-center justify-between border-b border-gray-800">
           <div className="flex items-center gap-2 md:gap-4">
              <h1 onClick={() => router.push('/')} className="text-xl md:text-2xl font-black tracking-tighter cursor-pointer bg-clip-text text-transparent bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500">ScanVidz</h1>
@@ -613,15 +631,29 @@ function WatchContent() {
                  onMouseMove={handleMouseMove}
                  onMouseLeave={() => isPlaying && setShowControls(false)}
               >
-                 {/* A. YouTube Iframe (Hidden Controls) */}
-                 <YouTube 
-                    videoId={videoId} 
-                    opts={opts} 
-                    onReady={onPlayerReady} 
-                    onStateChange={onPlayerStateChange}
-                    className="w-full h-full pointer-events-none" // 🔴 No direct interaction
-                    iframeClassName="w-full h-full"
-                 />
+                 {/* 🔥 FALLBACK UI FOR ERROR / RESTRICTED VIDEOS */}
+                 {isVideoError ? (
+                     <div className="absolute inset-0 bg-black flex flex-col items-center justify-center p-8 text-center z-50">
+                         <div className="w-20 h-20 bg-gray-800 rounded-full flex items-center justify-center mb-6 text-yellow-500">
+                             <span className="text-4xl">⚠️</span>
+                         </div>
+                         <h2 className="text-2xl font-bold mb-2 text-white">Video Unavailable Here</h2>
+                         <p className="text-gray-400 mb-6 max-w-md">This video contains content (like F1/Music) restricted by the owner on external sites.</p>
+                         <a href={`https://www.youtube.com/watch?v=${videoId}`} target="_blank" rel="noopener noreferrer" className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-full font-bold transition flex items-center gap-2 transform hover:scale-105">
+                             <span>Watch on YouTube ↗</span>
+                         </a>
+                     </div>
+                 ) : (
+                     <YouTube 
+                        videoId={videoId} 
+                        opts={opts} 
+                        onReady={onPlayerReady} 
+                        onStateChange={onPlayerStateChange}
+                        onError={onPlayerError}
+                        className="w-full h-full pointer-events-none" // 🔴 No direct interaction
+                        iframeClassName="w-full h-full"
+                     />
+                 )}
 
                  {/* B. INVISIBLE SHIELD (Handles Clicks) */}
                  <div 
@@ -631,7 +663,7 @@ function WatchContent() {
                  ></div>
 
                  {/* C. CENTER PLAY BUTTON */}
-                 {!isPlaying && (
+                 {!isPlaying && !isVideoError && (
                     <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
                         <div className="w-16 h-16 bg-black/60 rounded-full flex items-center justify-center backdrop-blur-sm border border-white/20 animate-pulse">
                             <svg className="w-8 h-8 text-white ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -640,7 +672,7 @@ function WatchContent() {
                  )}
 
                  {/* D. CUSTOM CONTROLS OVERLAY */}
-                 <div className={`absolute bottom-0 left-0 right-0 z-30 px-4 pb-4 pt-12 bg-gradient-to-t from-black/90 via-black/70 to-transparent transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+                 <div className={`absolute bottom-0 left-0 right-0 z-30 px-4 pb-4 pt-12 bg-gradient-to-t from-black/90 via-black/70 to-transparent transition-opacity duration-300 ${showControls && !isVideoError ? 'opacity-100' : 'opacity-0'}`}>
                     
                     {/* Progress Bar (Red Line) */}
                     <div className="group/seek relative w-full h-1 bg-gray-600 rounded-full cursor-pointer mb-4 hover:h-1.5 transition-all">
@@ -699,7 +731,7 @@ function WatchContent() {
                                             <button key={s} onClick={() => changeSpeed(s)} className={`flex-1 text-xs py-1.5 rounded-lg border border-gray-600 transition ${playbackSpeed === s ? 'bg-blue-600 border-blue-600 text-white' : 'hover:bg-gray-700'}`}>{s}x</button>
                                         ))}
                                     </div>
-                                    {/* 🔥 Quality removed from UI, it is now AUTO-FORCED to High */}
+                                    <div className="text-xs text-green-400 mt-2 text-center">⚡ High Quality Forced</div>
                                 </div>
                             )}
 
