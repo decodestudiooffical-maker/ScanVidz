@@ -1,19 +1,34 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import UserMenu from '@/components/UserMenu'; 
 
-// --- ADMIN CURATED LIST (Humara Algorithm) ---
-const ADMIN_PICKS = [
-  "Oppenheimer 4K Trailer",
-  "SpaceX Starship Launch 4K",
-  "Relaxing Rain 8K HDR",
-  "Cyberpunk 2077 Phantom Liberty 4K",
-  "Avatar Way of Water 4K",
-  "Best Coding Setup 2026",
-  "Interstellar IMAX scene",
-  "Formula 1 Highlights 4K"
+// 🔥 UPDATED BACKEND URL
+const API_BASE_URL = "https://scanvidz-backend.onrender.com";
+
+// --- 🌟 THE MEGA CURATED POOL (Merging 5 Best Ideas) ---
+const MEGA_POOL = [
+  // 💎 Visual Masterpieces (Premium)
+  "Oppenheimer 4K Trailer", "Avatar Way of Water 4K HDR", "Interstellar IMAX 4K",
+  "Cyberpunk 2077 Phantom Liberty 4K", "8K Nature Drone Footage", "Costa Rica 4K Animals",
+  "Formula 1 Highlights 4K", "Hans Zimmer Live Concert 4K", "Batman The Dark Knight 4K Scenes",
+  
+  // 🇮🇳 Region Top (Local Flavors)
+  "Trending in India", "Best Coke Studio Songs", "Viral Indian Memes Compilation",
+  "Best Bollywood Lo-fi", "Indian Street Food 4K", "Travel India 4K",
+  
+  // 🕵️ Underrated Gems (Hidden Talent)
+  "Award winning short film", "Best underrated movie scenes", "Staff pick vimeo",
+  "Hidden gem indie songs", "Beautiful cinematography no words", "Deep sea discovery 4K",
+  
+  // ⏳ Time Capsule (Nostalgia)
+  "Best songs of 2010", "90s Cartoon Intro Nostalgia", "Classic Rock Hits 80s",
+  "Old Delhi 90s footage", "Best Cricket Moments 2011 World Cup", "Retro Tech Reviews",
+  
+  // 🏆 Critic's Choice (High Quality)
+  "Oscar winning visual effects breakdown", "IMDb top rated movie clips",
+  "Ted Talk Best Inspiring", "Masterclass Acting Lessons", "Best Documentaries 2025"
 ];
 
 // --- TYPES ---
@@ -31,7 +46,11 @@ function BestContent() {
   const router = useRouter();
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
+  
+  // Track used topics to avoid repetition in one session
+  const [usedTopics, setUsedTopics] = useState<string[]>([]);
 
   // --- RESPONSIVE SIDEBAR LOGIC ---
   useEffect(() => {
@@ -44,28 +63,60 @@ function BestContent() {
       return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // --- FETCH BEST CONTENT ---
+  // --- 🔥 FETCH FUNCTION (HANDLES LOAD MORE) ---
+  const fetchBestContent = useCallback(async (isLoadMore = false) => {
+      if (isLoadMore) setLoadingMore(true); else setLoading(true);
+
+      // 1. Filter out topics we already showed
+      const availableTopics = MEGA_POOL.filter(t => !usedTopics.includes(t));
+      
+      // If we ran out of topics, reset the pool (Infinite Loop Logic)
+      const poolToUse = availableTopics.length < 8 ? MEGA_POOL : availableTopics;
+      
+      // 2. Pick 8 Random Topics
+      const shuffled = [...poolToUse].sort(() => 0.5 - Math.random());
+      const selectedTopics = shuffled.slice(0, 8);
+
+      // 3. Update used topics
+      if (availableTopics.length < 8) setUsedTopics(selectedTopics); 
+      else setUsedTopics(prev => [...prev, ...selectedTopics]);
+
+      // 4. Fetch Videos in Parallel
+      const promises = selectedTopics.map(query => 
+          fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(query)}&limit=1`)
+          .then(res => res.json())
+          .then(data => data.results?.[0] || null)
+          .catch(() => null)
+      );
+
+      const results = await Promise.all(promises);
+      const validVideos = results.filter(v => v !== null);
+
+      if (isLoadMore) {
+          // Filter duplicates before adding
+          setVideos(prev => {
+              const newVids = validVideos.filter(nv => !prev.some(pv => pv.link === nv.link));
+              return [...prev, ...newVids];
+          });
+      } else {
+          setVideos(validVideos);
+      }
+      
+      setLoading(false);
+      setLoadingMore(false);
+  }, [usedTopics]);
+
+  // --- INITIAL LOAD ---
   useEffect(() => {
-    const fetchBestContent = async () => {
-        setLoading(true);
-        let allVideos: Video[] = [];
-
-        // 🔥 UPDATED LINK HERE
-        const promises = ADMIN_PICKS.map(query => 
-            fetch(`https://scanvidz-backend.onrender.com/search?q=${encodeURIComponent(query)}&limit=1`)
-            .then(res => res.json())
-            .then(data => data.results?.[0] || null)
-            .catch(() => null)
-        );
-
-        const results = await Promise.all(promises);
-        allVideos = results.filter(v => v !== null);
-        setVideos(allVideos);
-        setLoading(false);
-    };
-
-    fetchBestContent();
+    // Only fetch if empty
+    if (videos.length === 0) {
+        fetchBestContent(false);
+    }
   }, []);
+
+  const handleLoadMore = () => {
+      fetchBestContent(true);
+  };
 
   const playVideo = (video: Video) => {
     try {
@@ -75,7 +126,7 @@ function BestContent() {
         localStorage.setItem('scanvidz_history', JSON.stringify(newHistory));
     } catch(e) {}
 
-    router.push(`/watch?v=${encodeURIComponent(video.link)}&title=${encodeURIComponent(video.title)}&views=${encodeURIComponent(video.views)}&duration=${encodeURIComponent(video.duration)}&thumbnail=${encodeURIComponent(video.thumbnail)}`);
+    router.push(`/watch?v=${encodeURIComponent(video.link)}&title=${encodeURIComponent(video.title)}&views=${encodeURIComponent(video.views)}&duration=${encodeURIComponent(video.duration)}&thumbnail=${encodeURIComponent(video.thumbnail)}&channel=${encodeURIComponent(video.channel_name || '')}&avatar=${encodeURIComponent(video.channel_avatar || '')}`);
   };
 
   return (
@@ -91,7 +142,6 @@ function BestContent() {
                 ScanVidz
             </h1>
          </div>
-         
          <UserMenu />
       </header>
 
@@ -119,12 +169,11 @@ function BestContent() {
          <main className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar w-full">
             <div className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-8 pl-2 border-l-4 border-purple-500">
                 <div>
-                    <h2 className="text-2xl md:text-3xl font-bold text-white">Best Content of the Day</h2>
-                    <p className="text-gray-400 text-sm mt-1">Handpicked high-quality videos for you.</p>
+                    <h2 className="text-2xl md:text-3xl font-bold text-white">Curated Collections 💎</h2>
+                    <p className="text-gray-400 text-sm mt-1">
+                        Underrated gems, visual masterpieces, and nostalgia. <span className="text-purple-400 font-bold">Refreshes every click.</span>
+                    </p>
                 </div>
-                <span className="bg-purple-600/20 text-purple-300 px-3 py-1 rounded-full text-xs font-bold border border-purple-500/30">
-                    Editor's Choice 💎
-                </span>
             </div>
 
             {loading ? (
@@ -138,27 +187,45 @@ function BestContent() {
                   ))}
                </div>
             ) : (
+               <>
                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                   {videos.map((video, idx) => (
                      <div key={idx} onClick={() => playVideo(video)} className="bg-[#121212] rounded-xl overflow-hidden cursor-pointer group hover:scale-[1.02] transition-transform duration-300 border border-transparent hover:border-purple-500/50">
                         <div className="relative aspect-video">
-                           <img src={video.thumbnail} className="w-full h-full object-cover" />
+                           <img src={video.thumbnail} className="w-full h-full object-cover" onError={(e:any) => e.target.src='https://via.placeholder.com/640x360'}/>
                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition duration-300"></div>
-                           <span className="absolute bottom-2 right-2 bg-purple-600 text-white text-xs px-2 py-1 rounded font-bold shadow-lg">4K HDR</span>
+                           <span className="absolute bottom-2 right-2 bg-purple-600 text-white text-xs px-2 py-1 rounded font-bold shadow-lg">HD</span>
                         </div>
                         <div className="p-4">
                            <h3 className="font-bold text-gray-100 line-clamp-2 leading-snug group-hover:text-purple-400 transition text-sm">{video.title}</h3>
                            <div className="flex justify-between items-center mt-3">
                                 <div className="flex items-center gap-2">
                                     <img src={video.channel_avatar || `https://ui-avatars.com/api/?background=random&name=${video.channel_name}`} className="w-6 h-6 rounded-full" />
-                                    <span className="text-xs text-gray-400">{video.channel_name}</span>
+                                    <span className="text-xs text-gray-400 line-clamp-1">{video.channel_name}</span>
                                 </div>
-                                <span className="text-xs text-gray-500">{video.views}</span>
+                                <span className="text-xs text-gray-500 whitespace-nowrap">{video.views}</span>
                            </div>
                         </div>
                      </div>
                   ))}
                </div>
+               
+               {/* 🔥 LOAD MORE BUTTON (Infinite Discovery) */}
+               <div className="flex justify-center mt-12 pb-20">
+                    <button 
+                        onClick={handleLoadMore} 
+                        disabled={loadingMore}
+                        className="bg-[#1f1f1f] hover:bg-[#333] text-white px-8 py-3 rounded-full font-bold border border-gray-700 transition-all hover:scale-105 flex items-center gap-2 shadow-lg"
+                    >
+                        {loadingMore ? (
+                            <>
+                              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              Discovering Gems...
+                            </>
+                        ) : "Load More Collections 🎲"}
+                    </button>
+               </div>
+               </>
             )}
          </main>
          
