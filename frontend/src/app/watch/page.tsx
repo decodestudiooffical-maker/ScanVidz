@@ -223,8 +223,7 @@ function WatchContent() {
       }
   };
 
-  // 🔥 H. POWERFUL QUALITY ENFORCER (Fix for Mobile & Laptop)
-  // This logic runs on load and play to force the player to the highest available quality.
+  // 🔥 H. SAFE QUALITY ENFORCER (Removed Stutter Logic)
   const enforceHighQuality = (targetPlayer: any) => {
       if (!targetPlayer) return;
       
@@ -240,16 +239,12 @@ function WatchContent() {
 
           // 2. Apply Force if not already on best
           if (currentQ !== bestQuality) {
-              console.log(`🚀 ScanVidz Optimizer: Forcing Quality to ${bestQuality}`);
+              console.log(`🚀 ScanVidz Optimizer: Requesting Quality ${bestQuality}`);
               targetPlayer.setPlaybackQuality(bestQuality);
-              
-              // 3. Tiny Seek Hack: Forces buffer flush on mobile
-              // Only do this if we are at the very start to avoid skipping user content
-              if ((currentQ === 'small' || currentQ === 'medium') && targetPlayer.getCurrentTime() < 2) {
-                  targetPlayer.seekTo(0.1, true); 
-              }
-              
               setCurrentQuality(bestQuality);
+              
+              // ❌ REMOVED: The logic that forced seek(0.1) is GONE.
+              // This fixes the play/pause stutter on mobile.
           }
       }
   };
@@ -286,11 +281,12 @@ function WatchContent() {
   // 4. YOUTUBE API INTEGRATION
   // -------------------------------------------------------
 
-  // Custom Options to HIDE everything & Force Desktop Mode behavior
-  // Ideas 1, 4, 8, 10 applied here
+  // Custom Options: Idea 1 (Size Trick) + Idea 10 (VQ) + Idea 4 (Playsinline)
   const opts = {
-      height: '100%',
-      width: '100%',
+      // 👇 IDEA 1: Trick YouTube into thinking it's a large screen
+      height: '1080',
+      width: '1920',
+      
       playerVars: {
           autoplay: 1,
           controls: 0, // 🔴 Hides Default Controls
@@ -303,7 +299,6 @@ function WatchContent() {
           playsinline: 1, // Idea 4: Helps with mobile control
           mute: 1, // Idea 8: Start Muted for better autoplay
           vq: 'hd1080', // Idea 10: URL parameter for quality request
-          start: 1 // Idea 2: Start 1s in to skip potential low-res intro buffer
       },
   };
 
