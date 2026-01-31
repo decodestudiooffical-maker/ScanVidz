@@ -4,6 +4,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import UserMenu from '@/components/UserMenu'; 
 
+// 🔥 UPDATED BACKEND URL
+const API_BASE_URL = "https://scanvidz-backend.onrender.com";
+
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -47,8 +50,8 @@ export default function Home() {
       const randomTopic = topics[Math.floor(Math.random() * topics.length)]; 
       
       try {
-          // Fetch mixed content based on random topic + page number
-          const res = await fetch(`https://scanvidz-default.onrender.com/search?q=${encodeURIComponent(randomTopic)}&limit=12&page=${pageNum}`);
+          // 🔥 Updated Link Here
+          const res = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(randomTopic)}&limit=12&page=${pageNum}`);
           const data = await res.json();
           
           const newVideos = data.results || data.videos || [];
@@ -73,7 +76,8 @@ export default function Home() {
   useEffect(() => {
     const timer = setTimeout(() => {
         if (searchQuery.length > 1 && showSuggestions) {
-            fetch(`https://scanvidz-default.onrender.com/suggestions?q=${encodeURIComponent(searchQuery)}`)
+            // 🔥 Updated Link Here
+            fetch(`${API_BASE_URL}/suggestions?q=${encodeURIComponent(searchQuery)}`)
                 .then(res => res.json())
                 .then(data => setSuggestions(data))
                 .catch(err => console.error(err));

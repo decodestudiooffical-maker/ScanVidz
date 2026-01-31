@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
-import UserMenu from '@/components/UserMenu'; // 🔥 Import UserMenu
+import UserMenu from '@/components/UserMenu'; 
 
 // --- ADMIN CURATED LIST (Humara Algorithm) ---
 const ADMIN_PICKS = [
@@ -50,8 +50,9 @@ function BestContent() {
         setLoading(true);
         let allVideos: Video[] = [];
 
+        // 🔥 UPDATED LINK HERE
         const promises = ADMIN_PICKS.map(query => 
-            fetch(`https://scanvidz-default.onrender.com/search?q=${encodeURIComponent(query)}&limit=1`)
+            fetch(`https://scanvidz-backend.onrender.com/search?q=${encodeURIComponent(query)}&limit=1`)
             .then(res => res.json())
             .then(data => data.results?.[0] || null)
             .catch(() => null)
@@ -91,7 +92,6 @@ function BestContent() {
             </h1>
          </div>
          
-         {/* 🔥 UPDATED: UserMenu Component */}
          <UserMenu />
       </header>
 

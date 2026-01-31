@@ -5,6 +5,9 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import YouTube from 'react-youtube'; 
 import UserMenu from '@/components/UserMenu'; 
 
+// 🔥 UPDATED BACKEND URL
+const API_BASE_URL = "https://scanvidz-backend.onrender.com";
+
 // --- COMPONENT START ---
 function WatchContent() {
   const searchParams = useSearchParams();
@@ -86,10 +89,10 @@ function WatchContent() {
       }
   }, []);
 
-  // 🔥 Fetch Comments
+  // 🔥 Fetch Comments (Updated Link)
   useEffect(() => {
       if (videoId) {
-          fetch(`https://scanvidz-default.onrender.com/comments?v=${videoId}`)
+          fetch(`${API_BASE_URL}/comments?v=${videoId}`)
             .then(res => res.json())
             .then(data => {
                 if (data.status === 'success') {
@@ -148,8 +151,8 @@ function WatchContent() {
           setLoadingFormats(true); 
           setViewCounted(false); // Reset view count logic for new video
 
-          // Fetch Formats (Prices included)
-          fetch(`https://scanvidz-default.onrender.com/formats?v=${videoId}`)
+          // Fetch Formats (Prices included) - Updated Link
+          fetch(`${API_BASE_URL}/formats?v=${videoId}`)
             .then(res => res.json())
             .then(data => {
                 if(data.status === 'success') {
@@ -158,9 +161,9 @@ function WatchContent() {
             })
             .finally(() => setLoadingFormats(false));
 
-          // 🔥 Fetch Metadata (ScanVidz Likes/Views)
+          // 🔥 Fetch Metadata (ScanVidz Likes/Views) - Updated Link
           const userIdParam = user ? `&user_id=${user.id}` : '';
-          fetch(`https://scanvidz-default.onrender.com/meta?v=${videoId}${userIdParam}`)
+          fetch(`${API_BASE_URL}/meta?v=${videoId}${userIdParam}`)
             .then(res => res.json())
             .then(data => {
                 if(data.status === 'success') {
@@ -187,8 +190,10 @@ function WatchContent() {
         const broadTag = title.split(' ').pop() || 'trending';
 
         Promise.all([
-            fetch(`https://scanvidz-default.onrender.com/search?q=${encodeURIComponent(mainTag)}&limit=15`).then(res => res.json()),
-            fetch(`https://scanvidz-default.onrender.com/search?q=${encodeURIComponent(broadTag + ' mix')}&limit=10`).then(res => res.json())
+            // Updated Link
+            fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(mainTag)}&limit=15`).then(res => res.json()),
+            // Updated Link
+            fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(broadTag + ' mix')}&limit=10`).then(res => res.json())
         ])
         .then(([strictData, mixData]) => {
             const strictVideos = strictData.results || strictData.videos || [];
@@ -262,7 +267,8 @@ function WatchContent() {
       const isMerge = format.needs_merge ? "true" : "false";
       const userIdParam = user ? `&user_id=${user.id}` : '';
       
-      const downloadUrl = `https://scanvidz-default.onrender.com/download?v=${videoId}&format_id=${format.format_id}&merge=${isMerge}${userIdParam}`;
+      // Updated Link
+      const downloadUrl = `${API_BASE_URL}/download?v=${videoId}&format_id=${format.format_id}&merge=${isMerge}${userIdParam}`;
       
       // Force Browser to Download
       setTimeout(() => {
@@ -284,7 +290,8 @@ function WatchContent() {
       setToastMsg("Processing Payment... 💸");
       
       try {
-          const res = await fetch('https://scanvidz-default.onrender.com/buy_video', {
+          // Updated Link
+          const res = await fetch(`${API_BASE_URL}/buy_video`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -337,7 +344,8 @@ function WatchContent() {
       setLikes(prev => newStatus ? prev + 1 : prev - 1);
 
       try {
-          await fetch('https://scanvidz-default.onrender.com/toggle_like', {
+          // Updated Link
+          await fetch(`${API_BASE_URL}/toggle_like`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ user_id: user.id, video_id: videoId })
@@ -356,7 +364,8 @@ function WatchContent() {
               setLikes(prev => prev - 1);
               setIsLiked(false);
               if(user) {
-                  fetch('https://scanvidz-default.onrender.com/toggle_like', {
+                  // Updated Link
+                  fetch(`${API_BASE_URL}/toggle_like`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ user_id: user.id, video_id: videoId })
@@ -385,7 +394,8 @@ function WatchContent() {
       setNewComment("");
 
       try {
-          await fetch('https://scanvidz-default.onrender.com/comments', {
+          // Updated Link
+          await fetch(`${API_BASE_URL}/comments`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(commentData)
@@ -439,8 +449,8 @@ function WatchContent() {
       
       // 0 = ENDED state
       if (event.data === 0 && !viewCounted) { 
-         // Call Backend to increment view
-         fetch('https://scanvidz-default.onrender.com/increment_view', {
+         // Call Backend to increment view - Updated Link
+         fetch(`${API_BASE_URL}/increment_view`, {
              method: 'POST',
              headers: { 'Content-Type': 'application/json' },
              body: JSON.stringify({ video_id: videoId })
@@ -456,8 +466,8 @@ function WatchContent() {
       }
 
       if (event.data === 1) { 
-         const player = event.target;
-         player.isMuted().then((muted: boolean) => { if(muted) player.unMute(); });
+          const player = event.target;
+          player.isMuted().then((muted: boolean) => { if(muted) player.unMute(); });
       }
   };
 
@@ -469,24 +479,24 @@ function WatchContent() {
        
        {/* --- HEADER SECTION --- */}
        <header className="sticky top-0 z-50 bg-[#0f0f0f]/95 backdrop-blur-md px-4 h-16 flex items-center justify-between border-b border-gray-800">
-         <div className="flex items-center gap-2 md:gap-4">
-            <h1 onClick={() => router.push('/')} className="text-xl md:text-2xl font-black tracking-tighter cursor-pointer bg-clip-text text-transparent bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500">
-                ScanVidz
-            </h1>
-         </div>
-         
-         <form onSubmit={handleHeaderSearch} className="flex flex-1 max-w-xl mx-auto items-center bg-[#121212] border border-gray-700 rounded-full px-3 py-1.5 ml-2 md:ml-4">
-            <input 
-                type="text" 
-                placeholder="Search..." 
-                className="bg-transparent flex-1 outline-none text-white placeholder-gray-500 text-sm md:text-base w-full"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <button type="submit" className="text-gray-400 hover:text-white px-2">🔍</button>
-         </form>
+          <div className="flex items-center gap-2 md:gap-4">
+             <h1 onClick={() => router.push('/')} className="text-xl md:text-2xl font-black tracking-tighter cursor-pointer bg-clip-text text-transparent bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500">
+                 ScanVidz
+             </h1>
+          </div>
+          
+          <form onSubmit={handleHeaderSearch} className="flex flex-1 max-w-xl mx-auto items-center bg-[#121212] border border-gray-700 rounded-full px-3 py-1.5 ml-2 md:ml-4">
+             <input 
+                 type="text" 
+                 placeholder="Search..." 
+                 className="bg-transparent flex-1 outline-none text-white placeholder-gray-500 text-sm md:text-base w-full"
+                 value={searchQuery}
+                 onChange={(e) => setSearchQuery(e.target.value)}
+             />
+             <button type="submit" className="text-gray-400 hover:text-white px-2">🔍</button>
+          </form>
 
-         <UserMenu />
+          <UserMenu />
        </header>
 
        <div className="flex flex-col lg:flex-row max-w-[1800px] mx-auto w-full">
@@ -621,32 +631,32 @@ function WatchContent() {
        {/* --- DOWNLOAD MODAL (Updated with Payment Logic) --- */}
        {showDownload && (
           <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-             <div className="bg-[#1f1f1f] border border-gray-700 p-6 rounded-2xl max-w-sm w-full shadow-2xl">
-                <div className="flex justify-between items-center mb-6">
-                   <h3 className="font-bold text-xl">Select Quality</h3>
-                   <button onClick={() => setShowDownload(false)} className="text-gray-400 hover:text-white bg-gray-800 rounded-full w-8 h-8 flex items-center justify-center">✕</button>
-                </div>
-                <div className="space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
-                   {formats.length > 0 ? formats.map((fmt: any, i) => (
-                      <button key={i} onClick={() => initiateDownload(fmt)} className="w-full flex justify-between items-center bg-[#272727] hover:bg-blue-600 hover:text-white p-4 rounded-xl transition group">
-                          <div className="flex flex-col items-start">
-                             <div className="flex items-center gap-2">
-                                <span className="font-bold text-lg">{fmt.quality.split(' ')[0]}</span>
-                                {fmt.price > 0 ? (
-                                    <span className="bg-yellow-500 text-black text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">PREMIUM ₹{fmt.price}</span>
-                                ) : (
-                                    <span className="bg-green-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">FREE</span>
-                                )}
-                             </div>
-                             <span className="text-xs text-gray-400 group-hover:text-blue-200 uppercase">{fmt.ext}</span>
-                          </div>
-                          <span className="text-sm font-mono bg-black/30 px-2 py-1 rounded">{fmt.size}</span>
-                      </button>
-                   )) : (
-                      <div className="text-center text-gray-400 py-4">No MP4 formats found.</div>
-                   )}
-                </div>
-             </div>
+              <div className="bg-[#1f1f1f] border border-gray-700 p-6 rounded-2xl max-w-sm w-full shadow-2xl">
+                 <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-bold text-xl">Select Quality</h3>
+                    <button onClick={() => setShowDownload(false)} className="text-gray-400 hover:text-white bg-gray-800 rounded-full w-8 h-8 flex items-center justify-center">✕</button>
+                 </div>
+                 <div className="space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                    {formats.length > 0 ? formats.map((fmt: any, i) => (
+                       <button key={i} onClick={() => initiateDownload(fmt)} className="w-full flex justify-between items-center bg-[#272727] hover:bg-blue-600 hover:text-white p-4 rounded-xl transition group">
+                           <div className="flex flex-col items-start">
+                              <div className="flex items-center gap-2">
+                                 <span className="font-bold text-lg">{fmt.quality.split(' ')[0]}</span>
+                                 {fmt.price > 0 ? (
+                                     <span className="bg-yellow-500 text-black text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">PREMIUM ₹{fmt.price}</span>
+                                 ) : (
+                                     <span className="bg-green-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">FREE</span>
+                                 )}
+                              </div>
+                              <span className="text-xs text-gray-400 group-hover:text-blue-200 uppercase">{fmt.ext}</span>
+                           </div>
+                           <span className="text-sm font-mono bg-black/30 px-2 py-1 rounded">{fmt.size}</span>
+                       </button>
+                    )) : (
+                       <div className="text-center text-gray-400 py-4">No MP4 formats found.</div>
+                    )}
+                 </div>
+              </div>
           </div>
        )}
 
