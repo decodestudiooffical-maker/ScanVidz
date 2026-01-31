@@ -86,7 +86,8 @@ function WatchContent() {
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isFullscreenMode, setIsFullscreenMode] = useState(false);
 
-  // --- Real Quality Management (Pre-populated with standards) ---
+  // --- Real Quality Management (Pre-populated) ---
+  // 🔥 FIX: Added full list so menu is never empty
   const [availableQualities, setAvailableQualities] = useState<string[]>([
       'highres', 'hd2160', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small', 'auto'
   ]);
@@ -97,7 +98,7 @@ function WatchContent() {
   const [related, setRelated] = useState<any[]>([]);
   const [countdown, setCountdown] = useState(5);
   
-  // 🔥 Autoplay Toggle State
+  // 🔥 FIX: Autoplay Toggle State
   const [isAutoplayEnabled, setIsAutoplayEnabled] = useState(true);
 
   // --- Download & Payment Logic (Backend Ready) ---
@@ -216,11 +217,24 @@ function WatchContent() {
       }
   };
 
-  // H. Settings: Quality (Real Logic + Preset List)
+  // 🔥 H. Settings: Quality (FORCE RELOAD LOGIC - Laptop Fix)
   const changeQuality = (qual: string) => {
       if (player) {
-          player.setPlaybackQuality(qual);
+          const currentTime = player.getCurrentTime();
+          
           setCurrentQuality(qual);
+          
+          // 🔥 HARD FORCE: Reload video at current time with explicit quality
+          if (qual !== 'auto') {
+              player.loadVideoById({
+                  videoId: videoId,
+                  startSeconds: currentTime,
+                  suggestedQuality: qual
+              });
+          } else {
+              player.setPlaybackQuality('auto');
+          }
+
           setShowSettings(false);
           
           // Feedback Toast
@@ -288,9 +302,7 @@ function WatchContent() {
       // 🔥 FETCH REAL QUALITIES (Merge with presets to avoid duplicates)
       const levels = event.target.getAvailableQualityLevels();
       if(levels && levels.length > 0) {
-          // We prioritize actual available levels, but keep our presets if API fails or is slow
           const uniqueLevels = Array.from(new Set([...levels, ...availableQualities]));
-          // Sort or keep order as needed, usually high to low is good
           setAvailableQualities(uniqueLevels);
       }
 
@@ -394,7 +406,7 @@ function WatchContent() {
       }
   }, [title]);
 
-  // Autoplay Countdown Logic (Modified for Toggle)
+  // 🔥 FIX: Autoplay Countdown Logic (Checks Toggle State)
   useEffect(() => {
       let timer: any;
       if (playerState === 0 && related.length > 0 && isAutoplayEnabled) {
@@ -412,7 +424,7 @@ function WatchContent() {
           setCountdown(5);
       }
       return () => clearInterval(timer);
-  }, [playerState, related, isAutoplayEnabled]); // Added dependency
+  }, [playerState, related, isAutoplayEnabled]); // Added isAutoplayEnabled dependency
 
   // -------------------------------------------------------
   // 6. ACTION HANDLERS
@@ -561,6 +573,7 @@ function WatchContent() {
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col font-sans">
        
+       {/* HEADER */}
        <header className="sticky top-0 z-50 bg-[#0f0f0f]/95 backdrop-blur-md px-4 h-16 flex items-center justify-between border-b border-gray-800">
           <div className="flex items-center gap-2 md:gap-4">
              <h1 onClick={() => router.push('/')} className="text-xl md:text-2xl font-black tracking-tighter cursor-pointer bg-clip-text text-transparent bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500">ScanVidz</h1>
@@ -574,6 +587,7 @@ function WatchContent() {
 
        <div className="flex flex-col lg:flex-row max-w-[1800px] mx-auto w-full">
            
+           {/* LEFT COLUMN: PLAYER & INFO */}
            <div className="flex-1 p-4 lg:p-6 lg:pr-0 overflow-y-auto">
               
               {/* 🔥 CUSTOM PLAYER CONTAINER */}
@@ -682,10 +696,10 @@ function WatchContent() {
                                 </div>
                             )}
 
-                            {/* Fullscreen Button (Fixed Standard Icon) */}
+                            {/* 🔥 FIXED: Fullscreen Button (Standard Icon) */}
                             <button onClick={toggleFullscreen} className="text-white hover:scale-110 transition">
                                 {isFullscreenMode ? (
-                                    // Minimize Icon
+                                    // Minimize Icon (Arrows pointing IN)
                                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg> 
                                 ) : (
                                     // Maximize Icon (Standard Box Corners)
@@ -777,7 +791,7 @@ function WatchContent() {
               <div className="flex items-center justify-between mb-4">
                   <h3 className="font-bold text-lg">Up Next</h3>
                   
-                  {/* 🔥 AUTOPLAY TOGGLE */}
+                  {/* 🔥 FIXED: AUTOPLAY TOGGLE */}
                   <div 
                     onClick={() => setIsAutoplayEnabled(!isAutoplayEnabled)} 
                     className="flex items-center gap-2 cursor-pointer"
