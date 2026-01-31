@@ -14,3 +14,7 @@ frontend/build/
 # --- System Files ---
 .DS_Store
 Thumbs.db
+
+# --- Security (HACKER SE BACHAV) 🔒 ---
+cookies.txt
+backend/cookies.txt
