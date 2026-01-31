@@ -86,14 +86,19 @@ function WatchContent() {
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isFullscreenMode, setIsFullscreenMode] = useState(false);
 
-  // --- Real Quality Management ---
-  const [availableQualities, setAvailableQualities] = useState<string[]>([]);
+  // --- Real Quality Management (Pre-populated with standards) ---
+  const [availableQualities, setAvailableQualities] = useState<string[]>([
+      'highres', 'hd2160', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small', 'auto'
+  ]);
   const [currentQuality, setCurrentQuality] = useState('auto');
   
   // --- Data & Recommendation States ---
   const [playerState, setPlayerState] = useState<number>(-1); 
   const [related, setRelated] = useState<any[]>([]);
   const [countdown, setCountdown] = useState(5);
+  
+  // 🔥 Autoplay Toggle State
+  const [isAutoplayEnabled, setIsAutoplayEnabled] = useState(true);
 
   // --- Download & Payment Logic (Backend Ready) ---
   const [showDownload, setShowDownload] = useState(false);
@@ -211,7 +216,7 @@ function WatchContent() {
       }
   };
 
-  // H. Settings: Quality (Real Logic)
+  // H. Settings: Quality (Real Logic + Preset List)
   const changeQuality = (qual: string) => {
       if (player) {
           player.setPlaybackQuality(qual);
@@ -280,10 +285,13 @@ function WatchContent() {
       event.target.playVideo();
       setIsPlaying(true);
       
-      // 🔥 FETCH REAL QUALITIES
+      // 🔥 FETCH REAL QUALITIES (Merge with presets to avoid duplicates)
       const levels = event.target.getAvailableQualityLevels();
       if(levels && levels.length > 0) {
-          setAvailableQualities(levels);
+          // We prioritize actual available levels, but keep our presets if API fails or is slow
+          const uniqueLevels = Array.from(new Set([...levels, ...availableQualities]));
+          // Sort or keep order as needed, usually high to low is good
+          setAvailableQualities(uniqueLevels);
       }
 
       // Fix Browser Autoplay Policy
@@ -386,10 +394,10 @@ function WatchContent() {
       }
   }, [title]);
 
-  // Autoplay Countdown
+  // Autoplay Countdown Logic (Modified for Toggle)
   useEffect(() => {
       let timer: any;
-      if (playerState === 0 && related.length > 0) {
+      if (playerState === 0 && related.length > 0 && isAutoplayEnabled) {
           timer = setInterval(() => {
               setCountdown((prev) => {
                   if (prev <= 1) {
@@ -404,7 +412,7 @@ function WatchContent() {
           setCountdown(5);
       }
       return () => clearInterval(timer);
-  }, [playerState, related]);
+  }, [playerState, related, isAutoplayEnabled]); // Added dependency
 
   // -------------------------------------------------------
   // 6. ACTION HANDLERS
@@ -652,7 +660,7 @@ function WatchContent() {
                                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                             </button>
                             
-                            {/* Settings Menu Popup (With Real Quality List) */}
+                            {/* Settings Menu Popup (With PRESET Qualities) */}
                             {showSettings && (
                                 <div className="absolute bottom-10 right-0 bg-[#1f1f1f]/95 border border-gray-700 rounded-xl p-3 w-56 shadow-2xl z-50 backdrop-blur-md max-h-80 overflow-y-auto custom-scrollbar">
                                     <div className="text-xs text-gray-400 mb-2 font-bold uppercase tracking-wider">Speed</div>
@@ -664,23 +672,23 @@ function WatchContent() {
                                     <div className="border-t border-gray-700 my-2"></div>
                                     <div className="text-xs text-gray-400 mb-2 font-bold uppercase tracking-wider">Quality</div>
                                     <div className="flex flex-col gap-1">
-                                        {availableQualities.length > 0 ? availableQualities.map((qual, i) => (
+                                        {availableQualities.map((qual, i) => (
                                             <button key={i} onClick={() => changeQuality(qual)} className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex justify-between items-center ${currentQuality === qual ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'hover:bg-gray-700 text-gray-200'}`}>
                                                 <span>{getQualityLabel(qual)}</span>
                                                 {currentQuality === qual && <span>✓</span>}
                                             </button>
-                                        )) : (
-                                            <div className="text-xs text-gray-500 px-2 py-1">Auto (Default)</div>
-                                        )}
+                                        ))}
                                     </div>
                                 </div>
                             )}
 
-                            {/* Fullscreen Button (Fixed Icon) */}
+                            {/* Fullscreen Button (Fixed Standard Icon) */}
                             <button onClick={toggleFullscreen} className="text-white hover:scale-110 transition">
                                 {isFullscreenMode ? (
+                                    // Minimize Icon
                                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg> 
                                 ) : (
+                                    // Maximize Icon (Standard Box Corners)
                                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
                                 )}
                             </button>
@@ -689,7 +697,7 @@ function WatchContent() {
                  </div>
 
                  {/* Up Next Overlay (Shows when video ends) */}
-                 {playerState === 0 && related.length > 0 && (
+                 {playerState === 0 && related.length > 0 && isAutoplayEnabled && (
                      <div className="absolute inset-0 bg-black/95 z-40 flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-300">
                          <h3 className="text-gray-400 text-sm uppercase tracking-widest mb-4">Up Next in {countdown}s</h3>
                          <div className="group relative cursor-pointer" onClick={() => playRelated(related[0])}>
@@ -768,8 +776,19 @@ function WatchContent() {
            <div className="w-full lg:w-[420px] p-4 lg:p-6">
               <div className="flex items-center justify-between mb-4">
                   <h3 className="font-bold text-lg">Up Next</h3>
-                  <span className="text-xs text-gray-400">Autoplay On</span>
+                  
+                  {/* 🔥 AUTOPLAY TOGGLE */}
+                  <div 
+                    onClick={() => setIsAutoplayEnabled(!isAutoplayEnabled)} 
+                    className="flex items-center gap-2 cursor-pointer"
+                  >
+                      <span className="text-xs text-gray-400 uppercase font-bold">Autoplay</span>
+                      <div className={`w-8 h-4 rounded-full flex items-center transition-colors ${isAutoplayEnabled ? 'bg-blue-600 justify-end' : 'bg-gray-600 justify-start'}`}>
+                          <div className="w-3 h-3 bg-white rounded-full mx-0.5 shadow-sm"></div>
+                      </div>
+                  </div>
               </div>
+              
               <div className="flex flex-col gap-3">
                   {related.map((vid, idx) => (
                       <div key={idx} onClick={() => playRelated(vid)} className="flex gap-2 cursor-pointer group hover:bg-[#1f1f1f] p-1 rounded-lg transition">
