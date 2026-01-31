@@ -13,6 +13,7 @@ import uuid
 import threading 
 import subprocess 
 import random 
+from collections import Counter 
 
 # --- DATABASE IMPORTS ---
 from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, ForeignKey
@@ -38,7 +39,7 @@ app.add_middleware(
 # 2. DATABASE SETUP (BUSINESS MODEL INTEGRATED)
 # =================================================================
 
-# Your Neon Database URL
+# Your Neon Database URL (Do not share this publicly)
 SQLALCHEMY_DATABASE_URL = "postgresql://neondb_owner:npg_GP6XqUDHMZc5@ep-spring-surf-a1wl9hrh-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
 
 try:
@@ -59,13 +60,13 @@ class User(Base):
     password = Column(String)
     joined = Column(String)
 
-# --- VIDEO CACHE (YouTube Data) ---
+# --- VIDEO CACHE (YouTube Data to save API calls) ---
 class VideoCache(Base):
     __tablename__ = "video_cache"
     video_id = Column(String, primary_key=True, index=True)
     title = Column(String)
-    likes = Column(String) # Legacy YouTube Likes
-    subs = Column(String)  # Legacy YouTube Subs
+    likes = Column(String) 
+    subs = Column(String)  
     views = Column(String)
     updated_at = Column(Float)
 
@@ -79,17 +80,17 @@ class Comment(Base):
     text = Column(String)
     timestamp = Column(String)
 
-# --- 🔥 NEW: BUSINESS ENGAGEMENT TABLES (ScanVidz Ecosystem) ---
+# --- 🔥 BUSINESS ENGAGEMENT TABLES (ScanVidz Ecosystem) ---
 
 class VideoEngagement(Base):
     """
     Stores Internal ScanVidz Likes & Views.
-    This data belongs to YOU, and creators will pay to sync this.
+    This helps us recommend videos that OUR users like.
     """
     __tablename__ = "video_engagement"
     video_id = Column(String, primary_key=True, index=True)
-    scanvidz_likes = Column(Integer, default=0) # Likes on YOUR platform
-    scanvidz_views = Column(Integer, default=0) # Views on YOUR platform
+    scanvidz_likes = Column(Integer, default=0) 
+    scanvidz_views = Column(Integer, default=0) 
 
 class UserLike(Base):
     """
@@ -103,18 +104,17 @@ class UserLike(Base):
 
 class UserPurchase(Base):
     """
-    Stores Payment History.
-    If a user buys a 4K video, record it here so they can download it again later freely.
+    Stores Payment History for Premium 4K Downloads.
     """
     __tablename__ = "user_purchases"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, index=True)
     video_id = Column(String, index=True)
     quality = Column(String) # e.g., '1080p', '4k'
-    amount_paid = Column(Float) # e.g., 5.0, 40.0
+    amount_paid = Column(Float) 
     timestamp = Column(Float)
 
-# Create all tables in the database
+# Create all tables
 try:
     Base.metadata.create_all(bind=engine)
 except:
@@ -132,12 +132,11 @@ def get_db():
 # 3. GLOBAL SETTINGS & PATHS
 # =================================================================
 
-# Use absolute paths for stability
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
 COOKIES_FILE = os.path.join(BASE_DIR, "cookies.txt")
 
-# Standard FFmpeg check
+# Check for FFmpeg (Required for Merging Video+Audio)
 if os.name == 'nt': 
     if os.path.exists(os.path.join(BASE_DIR, "ffmpeg.exe")):
         FFMPEG_PATH = os.path.join(BASE_DIR, "ffmpeg.exe")
@@ -149,34 +148,30 @@ else:
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
-# 🔥 USER-AGENT ROTATION (Prevents 0 MB & Block Issues)
+# User Agents to avoid YouTube blocking
 USER_AGENTS_LIST = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Safari/605.1.15',
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
-    'Mozilla/5.0 (iPad; CPU OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36'
 ]
 
 def get_random_agent():
     return random.choice(USER_AGENTS_LIST)
 
-# 🔥 CLIENT IMPERSONATION (Standard Python Settings)
+# Standard Options for YT-DLP
 BASE_OPTS = {
     'quiet': True,
     'no_warnings': True,
     'nocheckcertificate': True,
     'geo_bypass': True,
-    'extractor_args': {'youtube': {'player_client': ['android', 'web']}}, # Use Android Client to bypass throttling
+    'extractor_args': {'youtube': {'player_client': ['android', 'web']}}, 
     'socket_timeout': 30,
 }
 
 if os.path.exists(COOKIES_FILE):
     print(f"🍪 Cookies Found at {COOKIES_FILE}! Injecting for Premium Auth.")
     BASE_OPTS['cookiefile'] = COOKIES_FILE
-else:
-    print("⚠️ Cookies file not found. Search functionality might be limited.")
 
 # =================================================================
 # 4. HELPER FUNCTIONS
@@ -188,9 +183,7 @@ def cleanup_file(path: str):
         time.sleep(20)
         if os.path.exists(path):
             os.remove(path)
-            print(f"🗑️ Deleted temp file: {path}")
-    except Exception as e:
-        print(f"⚠️ Error deleting file: {e}")
+    except: pass
 
 def format_views(count):
     if not count: return "N/A"
@@ -205,8 +198,8 @@ def get_avatar(name):
     safe_name = (name or "U").replace(" ", "+")
     return f"https://ui-avatars.com/api/?background=random&color=fff&name={safe_name}&size=128"
 
-# 🔥 BACKGROUND CACHE UPDATER
 def update_video_cache_background(video_id: str, info: dict, db_session_factory):
+    """Updates the cache in background so user doesn't wait"""
     db = db_session_factory()
     try:
         cached_video = db.query(VideoCache).filter(VideoCache.video_id == video_id).first()
@@ -227,6 +220,7 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
             )
             db.add(new_cache)
         
+        # Ensure internal stats exist
         internal_stats = db.query(VideoEngagement).filter(VideoEngagement.video_id == video_id).first()
         if not internal_stats:
             new_stats = VideoEngagement(video_id=video_id, scanvidz_likes=0, scanvidz_views=0)
@@ -239,7 +233,7 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
         db.close()
 
 # =================================================================
-# 🔥 5. SMART FALLBACK ENGINE (Invidious API)
+# 5. SMART FALLBACK ENGINE (Invidious API)
 # =================================================================
 
 def fallback_search_invidious(query, limit=20):
@@ -247,7 +241,6 @@ def fallback_search_invidious(query, limit=20):
     Plan B: If YouTube blocks IP, fetch data from Public Invidious Mirrors.
     This guarantees results even if Render IP is banned.
     """
-    print(f"⚠️ Activating Fallback for: {query}")
     instances = [
         "https://vid.puffyan.us", 
         "https://inv.tux.pizza", 
@@ -256,31 +249,26 @@ def fallback_search_invidious(query, limit=20):
     
     for inst in instances:
         try:
-            # Try to fetch search results
             r = requests.get(f"{inst}/api/v1/search?q={query}", timeout=5)
             if r.status_code == 200:
                 data = r.json()
                 results = []
                 for item in data[:limit]:
                     if item.get('type') == 'video':
-                        # Convert Invidious format to ScanVidz format
                         results.append({
                             "title": item['title'],
                             "link": f"https://www.youtube.com/watch?v={item['videoId']}",
                             "id": item['videoId'],
                             "thumbnail": item['videoThumbnails'][0]['url'] if item.get('videoThumbnails') else f"https://i.ytimg.com/vi/{item['videoId']}/hqdefault.jpg",
-                            "duration": "HD", # Invidious formats duration differently, using generic
+                            "duration": "HD",
                             "views": format_views(item.get('viewCount', 0)),
                             "channel_name": item.get('author', 'ScanVidz'),
                             "channel_avatar": get_avatar(item.get('author'))
                         })
-                if results:
-                    print(f"✅ Fallback Successful via {inst}")
-                    return results
+                if results: return results
         except:
-            continue # Try next instance if one fails
+            continue 
     
-    print("❌ All Fallbacks Failed.")
     return []
 
 # =================================================================
@@ -314,7 +302,7 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db)):
     return {"status": "success", "user": user}
 
 # =================================================================
-# 7. COMMENTS API
+# 7. COMMENTS & ENGAGEMENT API
 # =================================================================
 
 class CommentModel(BaseModel):
@@ -330,10 +318,6 @@ def post_comment(comment: CommentModel, db: Session = Depends(get_db)):
 def get_comments(v: str, db: Session = Depends(get_db)):
     comments = db.query(Comment).filter(Comment.video_id == v).all()
     return {"status": "success", "comments": comments[::-1]}
-
-# =================================================================
-# 🔥 8. BUSINESS LOGIC (ALGORITHMS FOR CREATOR ECONOMY)
-# =================================================================
 
 class LikeRequest(BaseModel):
     user_id: str; video_id: str
@@ -385,22 +369,34 @@ def buy_video(req: PurchaseRequest, db: Session = Depends(get_db)):
     return {"status": "success", "message": "Payment Successful! Download unlocked."}
 
 # =================================================================
-# 9. VIDEO DATA API (SEARCH & TRENDING with FALLBACK)
+# 🔥 8. ADVANCED RECOMMENDATION ENGINE (THE "HYBRID BRAIN")
 # =================================================================
 
-@app.get("/")
-def home(): return {"message": "ScanVidz Business Engine Running 🚀"}
-
-@app.get("/ping")
-def ping_server(): return {"status": "awake"}
-
-@app.get("/suggestions")
-def get_suggestions(q: str = Query(None)):
-    if not q: return []
-    try:
-        url = f"http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={q}"
-        return json.loads(requests.get(url).text)[1]
-    except: return []
+def calculate_hybrid_score(video, user_interests):
+    """
+    Calculates a 'Desire Score' for a video based on Advanced Rules.
+    Higher Score = Better Recommendation.
+    """
+    score = 0
+    title_lower = video.get('title', '').lower()
+    
+    # Rule 1 & 2: Rabbit Hole (Tag Matching)
+    # If video title contains words from user's interests -> +50 Points
+    if any(tag in title_lower for tag in user_interests):
+        score += 50
+        
+    # Rule 17: Viral/Trending (Based on View Count 'M' or 'K')
+    views = video.get('views', '0')
+    if 'M' in views: 
+        score += 20  # Mega Viral (+20)
+    elif 'K' in views: 
+        score += 5   # Trending (+5)
+    
+    # Rule 10: Freshness (Simulated)
+    # Giving random boost to mimic "Fresh Content" logic
+    score += random.randint(1, 10) 
+    
+    return score
 
 @app.get("/search")
 def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: str = Query(None)):
@@ -411,13 +407,12 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
         elif filter == "Music": search_term += " music video"
         elif filter == "Gaming": search_term += " gameplay"
     
-    # PLAN A: Try YT-DLP First
     ydl_opts = {
         **BASE_OPTS, 
         'extract_flat': True, 
         'noplaylist': True, 
-        'limit': limit * page,
-        'ignoreerrors': True 
+        'limit': limit * page, 
+        'ignoreerrors': True
     }
     
     results = []
@@ -428,16 +423,23 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
                 start = (page - 1) * limit
                 for vid in info['entries'][start : start+limit]:
                     if vid:
-                        results.append({"title": vid.get('title'), "link": vid.get('url') or f"https://www.youtube.com/watch?v={vid.get('id')}", "id": vid.get('id'), "thumbnail": vid.get('thumbnail') or f"https://i.ytimg.com/vi/{vid.get('id')}/hqdefault.jpg", "duration": vid.get('duration_string') or "HD", "views": format_views(vid.get('view_count')), "channel_name": vid.get('uploader') or "ScanVidz", "channel_avatar": get_avatar(vid.get('uploader'))})
-                
-                # If Plan A works, return results
-                if len(results) > 0:
+                        results.append({
+                            "title": vid.get('title'),
+                            "link": vid.get('url') or f"https://www.youtube.com/watch?v={vid.get('id')}",
+                            "id": vid.get('id'),
+                            "thumbnail": vid.get('thumbnail') or f"https://i.ytimg.com/vi/{vid.get('id')}/hqdefault.jpg",
+                            "duration": vid.get('duration_string') or "HD",
+                            "views": format_views(vid.get('view_count')),
+                            "channel_name": vid.get('uploader') or "ScanVidz",
+                            "channel_avatar": get_avatar(vid.get('uploader'))
+                        })
+                if len(results) > 0: 
                     return {"status": "success", "results": results, "page": page}
     except Exception as e:
-        print(f"Plan A (YT-DLP) Failed: {e}")
-
-    # PLAN B: Fallback to Invidious if Plan A failed or returned 0 results
-    if not results:
+        print(f"Search Error: {e}")
+        
+    # Fallback if Plan A fails
+    if not results: 
         results = fallback_search_invidious(search_term, limit)
     
     return {"status": "success", "results": results, "page": page}
@@ -464,7 +466,7 @@ def get_meta(v: str, user_id: str = None, db: Session = Depends(get_db)):
         "meta": {
             "likes": total_likes, 
             "views": total_views, 
-            "subs": subs,
+            "subs": subs, 
             "is_liked": is_liked
         }
     }
@@ -472,7 +474,6 @@ def get_meta(v: str, user_id: str = None, db: Session = Depends(get_db)):
 # 🔥 FORMATS API (DISABLED FOR MAINTENANCE)
 @app.get("/formats")
 def get_formats(v: str):
-    # Returns empty so frontend shows 'Download unavailable' or spinner stops
     return {"status": "success", "formats": []} 
 
 # 🔥 DOWNLOAD API (DISABLED FOR MAINTENANCE)
@@ -480,30 +481,94 @@ def get_formats(v: str):
 def download_video():
     return {"status": "error", "message": "Downloads disabled temporarily for server maintenance."}
 
+# =================================================================
+# 🌟 UPDATED TRENDING API (THE HYBRID RECOMMENDATION ENGINE)
+# =================================================================
+
 @app.get("/trending")
-def get_trending():
-    # Attempt Plan A
-    ydl_opts = {**BASE_OPTS, 'extract_flat': True, 'limit': 20}
-    results = []
+def get_recommendations(user_id: str = None, db: Session = Depends(get_db)):
+    """
+    Advanced Recommendation Engine (Hybrid).
+    1. If New User -> Show Global Trending (Cold Start).
+    2. If Active User -> Mix 'Global Trending' with 'Interest Based' videos.
+    """
+    user_interests = []
+    
+    # 1. Extract User Interests from DB (Likes)
+    if user_id:
+        liked_videos = db.query(UserLike).filter(UserLike.user_id == user_id).limit(5).all()
+        # Fetch titles from Cache for these IDs
+        for like in liked_videos:
+            cached = db.query(VideoCache).filter(VideoCache.video_id == like.video_id).first()
+            if cached and cached.title:
+                # Simple extraction: Get words > 4 chars
+                words = [w.lower() for w in cached.title.split() if len(w) > 4]
+                user_interests.extend(words)
+    
+    # 2. Fetch Candidates (Trending + Interest Mix)
+    candidates = []
+    
+    # A. Fetch Global Trends
     try:
+        ydl_opts = {**BASE_OPTS, 'extract_flat': True, 'limit': 15}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info("https://www.youtube.com/feed/trending", download=False)
             if 'entries' in info:
                 for vid in info['entries']:
                     if vid:
-                        results.append({"title": vid.get('title'), "link": vid.get('url'), "thumbnail": vid.get('thumbnail'), "duration": "Hot", "views": format_views(vid.get('view_count')), "channel_name": vid.get('uploader'), "channel_avatar": get_avatar(vid.get('uploader'))})
-                if results: return {"status": "success", "videos": results}
-    except: pass
+                        candidates.append({
+                            "title": vid.get('title'),
+                            "link": vid.get('url'),
+                            "thumbnail": vid.get('thumbnail'),
+                            "duration": "Hot",
+                            "views": format_views(vid.get('view_count')),
+                            "channel_name": vid.get('uploader'),
+                            "channel_avatar": get_avatar(vid.get('uploader')),
+                            "raw_views": vid.get('view_count', 0)
+                        })
+    except: 
+        # Fallback if YT blocks trending
+        candidates = fallback_search_invidious("trending", limit=15)
+
+    # B. Fetch Interest Based (The Rabbit Hole)
+    if user_interests:
+        interest_query = " ".join(random.sample(user_interests, min(2, len(user_interests))))
+        try:
+            interest_results = search_videos(q=interest_query, limit=10).get('results', [])
+            candidates.extend(interest_results)
+        except: pass
+
+    # 3. Apply The Scoring Logic (Hybrid Brain)
+    scored_videos = []
+    seen_links = set()
     
-    # 🔥 PLAN B: Fallback to Invidious
-    return {"status": "success", "videos": fallback_search_invidious("trending", limit=20)}
+    for vid in candidates:
+        if vid['link'] in seen_links: continue
+        seen_links.add(vid['link'])
+        
+        final_score = calculate_hybrid_score(vid, user_interests)
+        vid['score'] = final_score
+        scored_videos.append(vid)
+
+    # 4. Sort by Score (Best First)
+    scored_videos.sort(key=lambda x: x.get('score', 0), reverse=True)
+
+    return {"status": "success", "videos": scored_videos}
+
+@app.get("/suggestions")
+def get_suggestions(q: str = Query(None)):
+    if not q: return []
+    try:
+        url = f"http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={q}"
+        return json.loads(requests.get(url).text)[1]
+    except: return []
 
 # 🔥 AUTO KEEP-ALIVE SYSTEM
 def keep_server_alive():
-    url = "https://scanvidz-default.onrender.com/ping" # Back to default URL
+    url = "https://scanvidz-default.onrender.com/ping"
     while True:
-        try:
-            time.sleep(840)
+        try: 
+            time.sleep(840) 
             requests.get(url)
         except: pass
 
