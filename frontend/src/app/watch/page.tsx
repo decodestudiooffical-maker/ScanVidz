@@ -5,42 +5,77 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import YouTube from 'react-youtube'; 
 import UserMenu from '@/components/UserMenu'; 
 
-// 🔥 UPDATED BACKEND URL
+// =========================================================
+// 🔥 GLOBAL CONFIGURATION
+// =========================================================
+
 const API_BASE_URL = "https://scanvidz-backend.onrender.com";
 
-// --- HELPER: Format Time (mm:ss) ---
+// =========================================================
+// 🛠️ HELPER FUNCTIONS
+// =========================================================
+
+// 1. Format Seconds to MM:SS or HH:MM:SS
 const formatTime = (seconds: number) => {
     if (isNaN(seconds)) return "00:00";
+    
     const date = new Date(seconds * 1000);
     const hh = date.getUTCHours();
     const mm = date.getUTCMinutes();
     const ss = date.getUTCSeconds().toString().padStart(2, "0");
+    
     if (hh) {
         return `${hh}:${mm.toString().padStart(2, "0")}:${ss}`;
     }
     return `${mm}:${ss}`;
 };
 
-// --- COMPONENT START ---
+// 2. Map YouTube Quality Tags to Readable Text
+const getQualityLabel = (q: string) => {
+    switch(q) {
+        case 'highres': return '4K+ (Original)';
+        case 'hd2160': return '4K (2160p)';
+        case 'hd1440': return '2K (1440p)';
+        case 'hd1080': return '1080p HD';
+        case 'hd720': return '720p HD';
+        case 'large': return '480p';
+        case 'medium': return '360p';
+        case 'small': return '240p';
+        case 'tiny': return '144p (Low)';
+        case 'auto': return 'Auto';
+        default: return q;
+    }
+};
+
+// =========================================================
+// 🎬 MAIN WATCH COMPONENT
+// =========================================================
+
 function WatchContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  // 1. DATA EXTRACTION
+  // -------------------------------------------------------
+  // 1. DATA EXTRACTION FROM URL
+  // -------------------------------------------------------
   const videoId = (searchParams.get('v') || '').split('v=')[1] || searchParams.get('v');
   const title = searchParams.get('title') || 'Video Player';
   const thumbnail = searchParams.get('thumbnail') || '';
   const durationParam = searchParams.get('duration') || '';
+  
+  // Channel Handling
   const rawChannel = searchParams.get('channel');
   const channelName = rawChannel && rawChannel !== 'undefined' ? rawChannel : 'ScanVidz Creator';
   const channelAvatar = searchParams.get('avatar') || `https://ui-avatars.com/api/?background=random&name=${channelName}`;
 
+  // -------------------------------------------------------
   // 2. STATE MANAGEMENT
+  // -------------------------------------------------------
   
-  // Player Instance
+  // --- Core Player Instance ---
   const [player, setPlayer] = useState<any>(null);
 
-  // Custom Player UI States
+  // --- Custom Player UI States ---
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -49,14 +84,18 @@ function WatchContent() {
   const [showControls, setShowControls] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [isFullscreenMode, setIsFullscreenMode] = useState(false);
+
+  // --- Real Quality Management ---
+  const [availableQualities, setAvailableQualities] = useState<string[]>([]);
+  const [currentQuality, setCurrentQuality] = useState('auto');
   
-  // Data States
+  // --- Data & Recommendation States ---
   const [playerState, setPlayerState] = useState<number>(-1); 
   const [related, setRelated] = useState<any[]>([]);
   const [countdown, setCountdown] = useState(5);
-  const [isFullscreenMode, setIsFullscreenMode] = useState(false);
 
-  // Download & Payment States
+  // --- Download & Payment Logic (Backend Ready) ---
   const [showDownload, setShowDownload] = useState(false);
   const [formats, setFormats] = useState([]);
   const [loadingFormats, setLoadingFormats] = useState(true);
@@ -64,7 +103,7 @@ function WatchContent() {
   const [showPayment, setShowPayment] = useState(false);
   const [selectedPremiumFormat, setSelectedPremiumFormat] = useState<any>(null);
 
-  // Engagement States
+  // --- Engagement (Likes, Subs, Views) ---
   const [likes, setLikes] = useState<number>(0); 
   const [isLiked, setIsLiked] = useState(false);
   const [isDisliked, setIsDisliked] = useState(false); 
@@ -73,29 +112,36 @@ function WatchContent() {
   const [views, setViews] = useState<string | number>(searchParams.get('views') || '0'); 
   const [viewCounted, setViewCounted] = useState(false);
 
-  // Comments & Search
+  // --- Comments & User ---
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState('');
   const [user, setUser] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Refs
+  // --- References ---
   const playerRef = useRef<any>(null); 
   const containerRef = useRef<HTMLDivElement>(null); 
   const controlsTimeoutRef = useRef<any>(null);
 
-  // --- 3. CUSTOM PLAYER LOGIC ---
+  // -------------------------------------------------------
+  // 3. CUSTOM PLAYER LOGIC (The Brain)
+  // -------------------------------------------------------
 
-  // Handle Mouse Move (Show/Hide Controls)
+  // A. Handle Mouse Move (Auto-Hide Controls)
   const handleMouseMove = () => {
       setShowControls(true);
-      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+      if (controlsTimeoutRef.current) {
+          clearTimeout(controlsTimeoutRef.current);
+      }
+      // Hide after 3 seconds of inactivity
       controlsTimeoutRef.current = setTimeout(() => {
-          if (isPlaying) setShowControls(false);
+          if (isPlaying) {
+              setShowControls(false);
+          }
       }, 3000);
   };
 
-  // Progress Bar Loop
+  // B. Progress Bar Loop (Updates every 500ms)
   useEffect(() => {
       let interval: any;
       if (player && isPlaying) {
@@ -106,6 +152,7 @@ function WatchContent() {
       return () => clearInterval(interval);
   }, [player, isPlaying]);
 
+  // C. Toggle Play/Pause
   const togglePlay = () => {
       if (!player) return;
       if (isPlaying) {
@@ -116,12 +163,14 @@ function WatchContent() {
       setIsPlaying(!isPlaying);
   };
 
+  // D. Seek Handling
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
       const time = parseFloat(e.target.value);
       setCurrentTime(time);
       player.seekTo(time);
   };
 
+  // E. Volume Control
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const vol = parseInt(e.target.value);
       setVolume(vol);
@@ -140,6 +189,7 @@ function WatchContent() {
       }
   };
 
+  // F. Fullscreen Toggle
   const toggleFullscreen = () => {
       if (containerRef.current) {
           if (!document.fullscreenElement) {
@@ -152,6 +202,7 @@ function WatchContent() {
       }
   };
 
+  // G. Settings: Speed
   const changeSpeed = (rate: number) => {
       if (player) {
           player.setPlaybackRate(rate);
@@ -160,13 +211,20 @@ function WatchContent() {
       }
   };
 
+  // H. Settings: Quality (Real Logic)
   const changeQuality = (qual: string) => {
       if (player) {
           player.setPlaybackQuality(qual);
+          setCurrentQuality(qual);
           setShowSettings(false);
+          
+          // Feedback Toast
+          setToastMsg(`Quality: ${getQualityLabel(qual)}`);
+          setTimeout(() => setToastMsg(null), 2000);
       }
   };
 
+  // I. Double Tap Feature (10s Skip)
   const handleDoubleTap = (e: React.MouseEvent) => {
       if (!player) return;
       const rect = (e.target as HTMLElement).getBoundingClientRect();
@@ -186,12 +244,17 @@ function WatchContent() {
           setCurrentTime(newTime);
           setToastMsg("⏩ 10s");
       } else {
+          // Center -> Toggle Play
           togglePlay();
       }
+      
+      // Clear Toast
       setTimeout(() => setToastMsg(null), 1000);
   };
 
-  // --- 4. YOUTUBE API HANDLERS ---
+  // -------------------------------------------------------
+  // 4. YOUTUBE API INTEGRATION
+  // -------------------------------------------------------
 
   // Custom Options to HIDE everything
   const opts = {
@@ -199,9 +262,9 @@ function WatchContent() {
       width: '100%',
       playerVars: {
           autoplay: 1,
-          controls: 0, // 🔴 Hide Default Controls
-          disablekb: 1, // 🔴 Disable Default Keyboard
-          fs: 0, // 🔴 Hide Fullscreen Button
+          controls: 0, // 🔴 Hides Default Controls
+          disablekb: 1, // 🔴 Disables Default Keyboard
+          fs: 0, // 🔴 Hides Fullscreen Button
           modestbranding: 1,
           rel: 0,
           showinfo: 0,
@@ -212,12 +275,18 @@ function WatchContent() {
 
   const onPlayerReady = (event: any) => {
       setPlayer(event.target);
-      playerRef.current = event.target; // For keyboard listener
+      playerRef.current = event.target;
       setDuration(event.target.getDuration());
       event.target.playVideo();
       setIsPlaying(true);
       
-      // Auto Unmute after a second (Browser policy fix)
+      // 🔥 FETCH REAL QUALITIES
+      const levels = event.target.getAvailableQualityLevels();
+      if(levels && levels.length > 0) {
+          setAvailableQualities(levels);
+      }
+
+      // Fix Browser Autoplay Policy
       setTimeout(() => { 
           event.target.unMute(); 
           setVolume(event.target.getVolume());
@@ -229,7 +298,7 @@ function WatchContent() {
       if (event.data === 1) setIsPlaying(true);
       if (event.data === 2) setIsPlaying(false);
       
-      // View Count Logic
+      // View Count Logic (Triggered on End)
       if (event.data === 0 && !viewCounted) { 
          setIsPlaying(false);
          fetch(`${API_BASE_URL}/increment_view`, {
@@ -248,8 +317,11 @@ function WatchContent() {
       }
   };
 
-  // --- 5. EFFECTS & DATA LOADING ---
+  // -------------------------------------------------------
+  // 5. EFFECTS & DATA LOADING
+  // -------------------------------------------------------
 
+  // Load User from LocalStorage
   useEffect(() => {
       const storedUser = localStorage.getItem('scanvidz_user');
       if (storedUser) {
@@ -257,10 +329,12 @@ function WatchContent() {
       }
   }, []);
 
+  // Keyboard Shortcuts (Spacebar)
   useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
           const target = e.target as HTMLElement;
           if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+          
           if (e.code === 'Space') {
               e.preventDefault();
               togglePlay();
@@ -268,18 +342,20 @@ function WatchContent() {
       };
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, player]); // Re-bind when state changes
+  }, [isPlaying, player]); 
 
+  // Fetch Video Metadata & Formats
   useEffect(() => {
       if (videoId) {
-          setLoadingFormats(true); 
           setViewCounted(false);
 
+          // Get Formats (for background logic)
           fetch(`${API_BASE_URL}/formats?v=${videoId}`)
             .then(res => res.json())
             .then(data => { if(data.status === 'success') setFormats(data.formats); })
             .finally(() => setLoadingFormats(false));
 
+          // Get Metadata (Likes/Views)
           const userIdParam = user ? `&user_id=${user.id}` : '';
           fetch(`${API_BASE_URL}/meta?v=${videoId}${userIdParam}`)
             .then(res => res.json())
@@ -292,12 +368,14 @@ function WatchContent() {
                 }
             });
 
+          // Get Comments
           fetch(`${API_BASE_URL}/comments?v=${videoId}`)
             .then(res => res.json())
             .then(data => { if (data.status === 'success') setComments(data.comments); });
       }
   }, [videoId, user]);
 
+  // Recommendation Engine
   useEffect(() => {
       if (title) {
         const mainTag = title.split(' ').slice(0, 4).join(' ');
@@ -308,6 +386,7 @@ function WatchContent() {
       }
   }, [title]);
 
+  // Autoplay Countdown
   useEffect(() => {
       let timer: any;
       if (playerState === 0 && related.length > 0) {
@@ -327,45 +406,14 @@ function WatchContent() {
       return () => clearInterval(timer);
   }, [playerState, related]);
 
-  // --- 6. HANDLERS (Copy-pasted from original logic) ---
-
-  const handleDownloadClick = () => {
-      if (loadingFormats) return;
-      if(formats.length > 0) setShowDownload(true);
-      else alert("Formats unavailable. Please refresh the page.");
-  };
-
-  const initiateDownload = (format: any) => {
-      if (format.price > 0) {
-          if (!user) { alert("Please Login to purchase Premium downloads!"); return; }
-          setSelectedPremiumFormat(format);
-          setShowPayment(true);
-          setShowDownload(false);
-      } else {
-          triggerDownload(format);
-      }
-  };
-
-  const triggerDownload = (format: any) => {
-      setToastMsg("Generating Download Link... 🚀");
-      const isMerge = format.needs_merge ? "true" : "false";
-      const userIdParam = user ? `&user_id=${user.id}` : '';
-      const downloadUrl = `${API_BASE_URL}/download?v=${videoId}&format_id=${format.format_id}&merge=${isMerge}${userIdParam}`;
-      setTimeout(() => {
-          const link = document.createElement('a');
-          link.href = downloadUrl;
-          link.setAttribute('download', `ScanVidz_${videoId}.mp4`);
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          setToastMsg("Download Started! 📂");
-          setTimeout(() => setToastMsg(null), 4000);
-      }, 500); 
-  };
+  // -------------------------------------------------------
+  // 6. ACTION HANDLERS
+  // -------------------------------------------------------
 
   const handlePaymentSuccess = async () => {
       if (!selectedPremiumFormat || !user) return;
       setToastMsg("Processing Payment... 💸");
+      
       try {
           const res = await fetch(`${API_BASE_URL}/buy_video`, {
               method: 'POST',
@@ -378,6 +426,7 @@ function WatchContent() {
               })
           });
           const data = await res.json();
+          
           if (data.status === 'success') {
               setShowPayment(false);
               alert("Payment Successful! ✅ Download starting...");
@@ -386,6 +435,37 @@ function WatchContent() {
               alert("Payment Failed: " + data.message);
           }
       } catch (err) { alert("Network Error"); }
+  };
+
+  // Internal Download Logic (Hidden from UI but present)
+  const triggerDownload = (format: any) => {
+      setToastMsg("Generating Download Link... 🚀");
+      const isMerge = format.needs_merge ? "true" : "false";
+      const userIdParam = user ? `&user_id=${user.id}` : '';
+      const downloadUrl = `${API_BASE_URL}/download?v=${videoId}&format_id=${format.format_id}&merge=${isMerge}${userIdParam}`;
+      
+      setTimeout(() => {
+          const link = document.createElement('a');
+          link.href = downloadUrl;
+          link.setAttribute('download', `ScanVidz_${videoId}.mp4`);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setToastMsg("Download Started! 📂");
+          setTimeout(() => setToastMsg(null), 4000);
+      }, 500); 
+  };
+
+  // Download Handler (kept for future reference)
+  const initiateDownload = (format: any) => {
+      if (format.price > 0) {
+          if (!user) { alert("Please Login to purchase Premium downloads!"); return; }
+          setSelectedPremiumFormat(format);
+          setShowPayment(true);
+          setShowDownload(false);
+      } else {
+          triggerDownload(format);
+      }
   };
 
   const handleSubscribe = () => {
@@ -467,7 +547,9 @@ function WatchContent() {
       if (searchQuery.trim()) router.push(`/search?q=${encodeURIComponent(searchQuery)}`);
   };
 
-  // --- 7. RENDER ---
+  // -------------------------------------------------------
+  // 7. MAIN RENDER
+  // -------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col font-sans">
        
@@ -486,26 +568,31 @@ function WatchContent() {
            
            <div className="flex-1 p-4 lg:p-6 lg:pr-0 overflow-y-auto">
               
-              {/* 🔥 CUSTOM PLAYER UI */}
+              {/* 🔥 CUSTOM PLAYER CONTAINER */}
               <div 
                  ref={containerRef} 
                  className={`relative w-full aspect-video bg-black group rounded-xl overflow-hidden shadow-2xl ${isFullscreenMode ? 'fixed inset-0 z-[100] rounded-none h-screen w-screen' : ''}`}
                  onMouseMove={handleMouseMove}
                  onMouseLeave={() => isPlaying && setShowControls(false)}
               >
+                 {/* A. YouTube Iframe (Hidden Controls) */}
                  <YouTube 
                     videoId={videoId} 
                     opts={opts} 
                     onReady={onPlayerReady} 
                     onStateChange={onPlayerStateChange}
-                    className="w-full h-full pointer-events-none" // 🔴 No direct clicks on iframe
+                    className="w-full h-full pointer-events-none" // 🔴 No direct interaction
                     iframeClassName="w-full h-full"
                  />
 
-                 {/* 🛡️ INVISIBLE SHIELD */}
-                 <div className="absolute inset-0 z-10 cursor-pointer" onClick={togglePlay} onDoubleClick={handleDoubleTap}></div>
+                 {/* B. INVISIBLE SHIELD (Handles Clicks) */}
+                 <div 
+                    className="absolute inset-0 z-10 cursor-pointer" 
+                    onClick={togglePlay} 
+                    onDoubleClick={handleDoubleTap}
+                 ></div>
 
-                 {/* Play Button Overlay (Centered) */}
+                 {/* C. CENTER PLAY BUTTON */}
                  {!isPlaying && (
                     <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
                         <div className="w-16 h-16 bg-black/60 rounded-full flex items-center justify-center backdrop-blur-sm border border-white/20 animate-pulse">
@@ -514,19 +601,32 @@ function WatchContent() {
                     </div>
                  )}
 
-                 {/* 🎛️ CUSTOM CONTROLS */}
+                 {/* D. CUSTOM CONTROLS OVERLAY */}
                  <div className={`absolute bottom-0 left-0 right-0 z-30 px-4 pb-4 pt-12 bg-gradient-to-t from-black/90 via-black/70 to-transparent transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
                     
-                    {/* Red Progress Bar */}
+                    {/* Progress Bar (Red Line) */}
                     <div className="group/seek relative w-full h-1 bg-gray-600 rounded-full cursor-pointer mb-4 hover:h-1.5 transition-all">
                         <div className="absolute h-full bg-red-600 rounded-full" style={{ width: `${(currentTime / duration) * 100}%` }}></div>
-                        <input type="range" min={0} max={duration} step={0.1} value={currentTime} onChange={handleSeek} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-40" />
+                        <input 
+                            type="range" 
+                            min={0} max={duration} step={0.1} 
+                            value={currentTime} 
+                            onChange={handleSeek} 
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-40" 
+                        />
                     </div>
 
+                    {/* Bottom Controls Row */}
                     <div className="flex items-center justify-between">
+                        
+                        {/* Left Side: Play, Volume, Time */}
                         <div className="flex items-center gap-4">
                             <button onClick={togglePlay} className="text-white hover:text-blue-400">
-                                {isPlaying ? <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> : <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>}
+                                {isPlaying ? (
+                                    <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                                ) : (
+                                    <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                )}
                             </button>
                             
                             <div className="flex items-center gap-2 group/vol">
@@ -540,18 +640,21 @@ function WatchContent() {
                                 <input type="range" min={0} max={100} value={isMuted ? 0 : volume} onChange={handleVolumeChange} className="w-0 group-hover/vol:w-20 transition-all h-1 bg-white rounded-full accent-blue-500 cursor-pointer" />
                             </div>
 
-                            <span className="text-xs font-mono text-gray-300">{formatTime(currentTime)} / {formatTime(duration)}</span>
+                            <span className="text-xs font-mono text-gray-300">
+                                {formatTime(currentTime)} / {formatTime(duration)}
+                            </span>
                         </div>
 
+                        {/* Right Side: Settings, Fullscreen */}
                         <div className="flex items-center gap-4 relative">
-                            {/* Settings */}
+                            {/* Settings Icon */}
                             <button onClick={() => setShowSettings(!showSettings)} className={`text-white transition transform ${showSettings ? 'rotate-90' : ''}`}>
                                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                             </button>
                             
-                            {/* Settings Menu */}
+                            {/* Settings Menu Popup (With Real Quality List) */}
                             {showSettings && (
-                                <div className="absolute bottom-10 right-0 bg-[#1f1f1f]/95 border border-gray-700 rounded-xl p-3 w-48 shadow-2xl z-50 backdrop-blur-md">
+                                <div className="absolute bottom-10 right-0 bg-[#1f1f1f]/95 border border-gray-700 rounded-xl p-3 w-56 shadow-2xl z-50 backdrop-blur-md max-h-80 overflow-y-auto custom-scrollbar">
                                     <div className="text-xs text-gray-400 mb-2 font-bold uppercase tracking-wider">Speed</div>
                                     <div className="flex gap-1 mb-3">
                                         {[0.5, 1, 1.5, 2].map(s => (
@@ -560,19 +663,32 @@ function WatchContent() {
                                     </div>
                                     <div className="border-t border-gray-700 my-2"></div>
                                     <div className="text-xs text-gray-400 mb-2 font-bold uppercase tracking-wider">Quality</div>
-                                    <button onClick={() => changeQuality('highres')} className="w-full text-left text-sm px-3 py-2 hover:bg-gray-700 rounded-lg flex justify-between items-center text-white"><span>High Definition</span> <span className="text-yellow-400 text-xs font-bold">HD</span></button>
-                                    <button onClick={() => changeQuality('medium')} className="w-full text-left text-sm px-3 py-2 hover:bg-gray-700 rounded-lg text-gray-300">Data Saver (360p)</button>
+                                    <div className="flex flex-col gap-1">
+                                        {availableQualities.length > 0 ? availableQualities.map((qual, i) => (
+                                            <button key={i} onClick={() => changeQuality(qual)} className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex justify-between items-center ${currentQuality === qual ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'hover:bg-gray-700 text-gray-200'}`}>
+                                                <span>{getQualityLabel(qual)}</span>
+                                                {currentQuality === qual && <span>✓</span>}
+                                            </button>
+                                        )) : (
+                                            <div className="text-xs text-gray-500 px-2 py-1">Auto (Default)</div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
+                            {/* Fullscreen Button (Fixed Icon) */}
                             <button onClick={toggleFullscreen} className="text-white hover:scale-110 transition">
-                                {isFullscreenMode ? <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>}
+                                {isFullscreenMode ? (
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg> 
+                                ) : (
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                                )}
                             </button>
                         </div>
                     </div>
                  </div>
 
-                 {/* Up Next Overlay (When Ends) */}
+                 {/* Up Next Overlay (Shows when video ends) */}
                  {playerState === 0 && related.length > 0 && (
                      <div className="absolute inset-0 bg-black/95 z-40 flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-300">
                          <h3 className="text-gray-400 text-sm uppercase tracking-widest mb-4">Up Next in {countdown}s</h3>
@@ -586,7 +702,7 @@ function WatchContent() {
                  )}
               </div>
 
-              {/* VIDEO INFO */}
+              {/* VIDEO INFO SECTION */}
               <div className="mt-4">
                  <div className="flex justify-between items-start gap-4">
                      <h1 className="text-xl md:text-2xl font-bold line-clamp-2 leading-snug flex-1">{title}</h1>
@@ -607,17 +723,16 @@ function WatchContent() {
                           <button onClick={handleLike} className={`px-4 py-2 flex items-center gap-2 text-sm font-medium border-r border-gray-600 transition ${isLiked ? 'text-blue-400' : 'hover:bg-[#3f3f3f]'}`}>👍 {likes}</button>
                           <button onClick={handleDislike} className={`px-4 py-2 text-sm font-medium transition ${isDisliked ? 'text-blue-400' : 'hover:bg-[#3f3f3f]'}`}>👎</button>
                        </div>
-                       <button onClick={handleDownloadClick} disabled={loadingFormats} className={`bg-[#272727] border border-gray-700 px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition ${loadingFormats ? 'opacity-70 cursor-not-allowed' : 'hover:bg-[#3f3f3f]'}`}>
-                           {loadingFormats ? 'Loading...' : '⬇ Download'}
-                       </button>
+                       {/* 🔥 REMOVED DOWNLOAD BUTTON AS REQUESTED */}
                     </div>
                  </div>
                  
                  <div className="mt-4 bg-[#272727]/50 border border-gray-800 p-3 rounded-xl text-sm text-gray-300 hover:bg-[#272727] transition cursor-pointer">
                     <p className="font-bold text-white mb-1">{views} views • Just now</p>
-                    <p>Watching on ScanVidz Pro. No Ads. No Tracking.</p>
+                    <p>Watching on ScanVidz Pro. No Ads. No Tracking. Experience premium quality.</p>
                  </div>
                  
+                 {/* COMMENTS SECTION */}
                  <div className="mt-8 mb-10">
                     <h3 className="text-xl font-bold mb-4">{comments.length} Comments</h3>
                     <form onSubmit={handleComment} className="flex gap-4 mb-8">
@@ -649,6 +764,7 @@ function WatchContent() {
               </div>
            </div>
 
+           {/* RIGHT SIDE: RELATED VIDEOS */}
            <div className="w-full lg:w-[420px] p-4 lg:p-6">
               <div className="flex items-center justify-between mb-4">
                   <h3 className="font-bold text-lg">Up Next</h3>
@@ -674,31 +790,7 @@ function WatchContent() {
            </div>
        </div>
 
-       {showDownload && (
-          <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-              <div className="bg-[#1f1f1f] border border-gray-700 p-6 rounded-2xl max-w-sm w-full shadow-2xl">
-                 <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-bold text-xl">Select Quality</h3>
-                    <button onClick={() => setShowDownload(false)} className="text-gray-400 hover:text-white bg-gray-800 rounded-full w-8 h-8 flex items-center justify-center">✕</button>
-                 </div>
-                 <div className="space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
-                    {formats.length > 0 ? formats.map((fmt: any, i) => (
-                       <button key={i} onClick={() => initiateDownload(fmt)} className="w-full flex justify-between items-center bg-[#272727] hover:bg-blue-600 hover:text-white p-4 rounded-xl transition group">
-                           <div className="flex flex-col items-start">
-                              <div className="flex items-center gap-2">
-                                 <span className="font-bold text-lg">{fmt.quality.split(' ')[0]}</span>
-                                 {fmt.price > 0 ? <span className="bg-yellow-500 text-black text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">PREMIUM ₹{fmt.price}</span> : <span className="bg-green-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">FREE</span>}
-                              </div>
-                              <span className="text-xs text-gray-400 group-hover:text-blue-200 uppercase">{fmt.ext}</span>
-                           </div>
-                           <span className="text-sm font-mono bg-black/30 px-2 py-1 rounded">{fmt.size}</span>
-                       </button>
-                    )) : <div className="text-center text-gray-400 py-4">No MP4 formats found.</div>}
-                 </div>
-              </div>
-          </div>
-       )}
-
+       {/* PAYMENT MODAL (Hidden by default, used for future features) */}
        {showPayment && selectedPremiumFormat && (
            <div className="fixed inset-0 bg-black/90 z-[110] flex items-center justify-center p-4 backdrop-blur-md">
                <div className="bg-[#181818] border border-yellow-600/50 p-8 rounded-3xl max-w-md w-full shadow-[0_0_50px_rgba(234,179,8,0.2)] text-center relative">
@@ -715,9 +807,10 @@ function WatchContent() {
            </div>
        )}
 
+       {/* TOAST MESSAGE (For Feedback) */}
        {toastMsg && (
          <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-full shadow-2xl z-[150] flex items-center gap-3 animate-bounce">
-            <span className="text-xl">⬇</span>
+            <span className="text-xl">ℹ</span>
             <span className="font-bold text-sm md:text-base whitespace-nowrap">{toastMsg}</span>
          </div>
        )}
