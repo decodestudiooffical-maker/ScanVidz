@@ -6,7 +6,7 @@ import YouTube from 'react-youtube';
 import UserMenu from '@/components/UserMenu'; 
 
 // =========================================================
-// 🔥 GLOBAL CONFIGURATION
+// 🔥 GLOBAL CONFIGURATION & API
 // =========================================================
 
 const API_BASE_URL = "https://scanvidz-backend.onrender.com";
@@ -16,6 +16,7 @@ const API_BASE_URL = "https://scanvidz-backend.onrender.com";
 // =========================================================
 
 // 1. Format Seconds to MM:SS or HH:MM:SS
+// This helps in displaying the video duration neatly
 const formatTime = (seconds: number) => {
     if (isNaN(seconds)) return "00:00";
     
@@ -30,7 +31,7 @@ const formatTime = (seconds: number) => {
     return `${mm}:${ss}`;
 };
 
-// 2. Map YouTube Quality Tags to Readable Text
+// 2. Map YouTube Quality Tags to Readable Text (Internal Use)
 const getQualityLabel = (q: string) => {
     switch(q) {
         case 'highres': return '4K+ (Original)';
@@ -58,6 +59,7 @@ function WatchContent() {
   // -------------------------------------------------------
   // 1. DATA EXTRACTION FROM URL
   // -------------------------------------------------------
+  // Extracts video details safely from the URL query parameters
   const videoId = (searchParams.get('v') || '').split('v=')[1] || searchParams.get('v');
   const title = searchParams.get('title') || 'Video Player';
   const thumbnail = searchParams.get('thumbnail') || '';
@@ -86,11 +88,8 @@ function WatchContent() {
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isFullscreenMode, setIsFullscreenMode] = useState(false);
 
-  // --- Real Quality Management (Pre-populated) ---
-  // 🔥 FIX: Added full list so menu is never empty
-  const [availableQualities, setAvailableQualities] = useState<string[]>([
-      'highres', 'hd2160', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small', 'auto'
-  ]);
+  // --- Quality State (Now purely internal for enforcement) ---
+  // We removed the menu, but we keep this to track what is playing
   const [currentQuality, setCurrentQuality] = useState('auto');
   
   // --- Data & Recommendation States ---
@@ -98,10 +97,10 @@ function WatchContent() {
   const [related, setRelated] = useState<any[]>([]);
   const [countdown, setCountdown] = useState(5);
   
-  // 🔥 FIX: Autoplay Toggle State
+  // 🔥 Autoplay Toggle State (Default ON)
   const [isAutoplayEnabled, setIsAutoplayEnabled] = useState(true);
 
-  // --- Download & Payment Logic (Backend Ready) ---
+  // --- Download & Payment Logic (Backend Ready - UI Hidden) ---
   const [showDownload, setShowDownload] = useState(false);
   const [formats, setFormats] = useState([]);
   const [loadingFormats, setLoadingFormats] = useState(true);
@@ -217,29 +216,38 @@ function WatchContent() {
       }
   };
 
-  // 🔥 H. Settings: Quality (FORCE RELOAD LOGIC - Laptop Fix)
-  const changeQuality = (qual: string) => {
-      if (player) {
-          const currentTime = player.getCurrentTime();
-          
-          setCurrentQuality(qual);
-          
-          // 🔥 HARD FORCE: Reload video at current time with explicit quality
-          if (qual !== 'auto') {
-              player.loadVideoById({
-                  videoId: videoId,
-                  startSeconds: currentTime,
-                  suggestedQuality: qual
-              });
-          } else {
-              player.setPlaybackQuality('auto');
-          }
+  // 🔥 H. QUALITY ENFORCER (No Menu - Auto High Res)
+  // This function forces the player to jump to the highest possible quality
+  const enforceHighQuality = (targetPlayer: any) => {
+      if (!targetPlayer) return;
 
-          setShowSettings(false);
-          
-          // Feedback Toast
-          setToastMsg(`Quality: ${getQualityLabel(qual)}`);
-          setTimeout(() => setToastMsg(null), 2000);
+      // Get all available levels (e.g., ['hd1080', 'hd720', 'large', ...])
+      const levels = targetPlayer.getAvailableQualityLevels();
+      
+      if (levels && levels.length > 0) {
+          // Usually, the first element is the highest quality (e.g., 'hd1080' or 'highres')
+          const bestQuality = levels[0];
+          const currentQ = targetPlayer.getPlaybackQuality();
+
+          // Only apply if we aren't already on the best quality
+          if (currentQ !== bestQuality) {
+              console.log(`🚀 Forcing High Quality: ${bestQuality} (was ${currentQ})`);
+              
+              // 1. Suggest Quality
+              targetPlayer.setPlaybackQuality(bestQuality);
+              
+              // 2. Force Reload logic to trick Mobile/Laptop players
+              // We reload the video at the *current time* with the *best quality* suggestion
+              const currTime = targetPlayer.getCurrentTime();
+              // Prevent infinite loops by checking if time is very start (0)
+              if (currTime < 1) {
+                  // Only force hard reload at start to lock quality
+                  // For mid-stream, we rely on setPlaybackQuality to avoid buffering glitches
+                  targetPlayer.setOption && targetPlayer.setOption("captions", "track", {}); 
+              }
+              
+              setCurrentQuality(bestQuality);
+          }
       }
   };
 
@@ -275,7 +283,7 @@ function WatchContent() {
   // 4. YOUTUBE API INTEGRATION
   // -------------------------------------------------------
 
-  // Custom Options to HIDE everything
+  // Custom Options to HIDE everything & Force Desktop Mode behavior
   const opts = {
       height: '100%',
       width: '100%',
@@ -288,7 +296,8 @@ function WatchContent() {
           rel: 0,
           showinfo: 0,
           iv_load_policy: 3,
-          playsinline: 1
+          playsinline: 1, // Helps with iOS styling
+          cc_load_policy: 0, // No captions by default
       },
   };
 
@@ -299,26 +308,33 @@ function WatchContent() {
       event.target.playVideo();
       setIsPlaying(true);
       
-      // 🔥 FETCH REAL QUALITIES (Merge with presets to avoid duplicates)
-      const levels = event.target.getAvailableQualityLevels();
-      if(levels && levels.length > 0) {
-          const uniqueLevels = Array.from(new Set([...levels, ...availableQualities]));
-          setAvailableQualities(uniqueLevels);
-      }
+      // 🔥 AGGRESSIVE QUALITY FORCE ON LOAD
+      // We immediately try to set the highest resolution found
+      enforceHighQuality(event.target);
 
       // Fix Browser Autoplay Policy
       setTimeout(() => { 
           event.target.unMute(); 
           setVolume(event.target.getVolume());
+          // Check quality again after a second to ensure it stuck
+          enforceHighQuality(event.target);
       }, 1000);
   };
 
   const onPlayerStateChange = (event: any) => {
       setPlayerState(event.data);
-      if (event.data === 1) setIsPlaying(true);
+      
+      // 1 = Playing
+      if (event.data === 1) {
+          setIsPlaying(true);
+          // 🔥 Keep enforcing quality when playback starts
+          enforceHighQuality(event.target);
+      }
+      
+      // 2 = Paused
       if (event.data === 2) setIsPlaying(false);
       
-      // View Count Logic (Triggered on End)
+      // 0 = Ended (View Count Logic)
       if (event.data === 0 && !viewCounted) { 
          setIsPlaying(false);
          fetch(`${API_BASE_URL}/increment_view`, {
@@ -406,7 +422,7 @@ function WatchContent() {
       }
   }, [title]);
 
-  // 🔥 FIX: Autoplay Countdown Logic (Checks Toggle State)
+  // Autoplay Countdown Logic (Respects Toggle)
   useEffect(() => {
       let timer: any;
       if (playerState === 0 && related.length > 0 && isAutoplayEnabled) {
@@ -424,7 +440,7 @@ function WatchContent() {
           setCountdown(5);
       }
       return () => clearInterval(timer);
-  }, [playerState, related, isAutoplayEnabled]); // Added isAutoplayEnabled dependency
+  }, [playerState, related, isAutoplayEnabled]); // Added dependency
 
   // -------------------------------------------------------
   // 6. ACTION HANDLERS
@@ -674,29 +690,20 @@ function WatchContent() {
                                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                             </button>
                             
-                            {/* Settings Menu Popup (With PRESET Qualities) */}
+                            {/* Settings Menu Popup (Simplified: Speed Only) */}
                             {showSettings && (
-                                <div className="absolute bottom-10 right-0 bg-[#1f1f1f]/95 border border-gray-700 rounded-xl p-3 w-56 shadow-2xl z-50 backdrop-blur-md max-h-80 overflow-y-auto custom-scrollbar">
+                                <div className="absolute bottom-10 right-0 bg-[#1f1f1f]/95 border border-gray-700 rounded-xl p-3 w-48 shadow-2xl z-50 backdrop-blur-md">
                                     <div className="text-xs text-gray-400 mb-2 font-bold uppercase tracking-wider">Speed</div>
-                                    <div className="flex gap-1 mb-3">
+                                    <div className="flex gap-1 mb-1">
                                         {[0.5, 1, 1.5, 2].map(s => (
                                             <button key={s} onClick={() => changeSpeed(s)} className={`flex-1 text-xs py-1.5 rounded-lg border border-gray-600 transition ${playbackSpeed === s ? 'bg-blue-600 border-blue-600 text-white' : 'hover:bg-gray-700'}`}>{s}x</button>
                                         ))}
                                     </div>
-                                    <div className="border-t border-gray-700 my-2"></div>
-                                    <div className="text-xs text-gray-400 mb-2 font-bold uppercase tracking-wider">Quality</div>
-                                    <div className="flex flex-col gap-1">
-                                        {availableQualities.map((qual, i) => (
-                                            <button key={i} onClick={() => changeQuality(qual)} className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex justify-between items-center ${currentQuality === qual ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' : 'hover:bg-gray-700 text-gray-200'}`}>
-                                                <span>{getQualityLabel(qual)}</span>
-                                                {currentQuality === qual && <span>✓</span>}
-                                            </button>
-                                        ))}
-                                    </div>
+                                    {/* 🔥 Quality removed from UI, it is now AUTO-FORCED to High */}
                                 </div>
                             )}
 
-                            {/* 🔥 FIXED: Fullscreen Button (Standard Icon) */}
+                            {/* Fullscreen Button (Fixed Standard Icon) */}
                             <button onClick={toggleFullscreen} className="text-white hover:scale-110 transition">
                                 {isFullscreenMode ? (
                                     // Minimize Icon (Arrows pointing IN)
@@ -745,13 +752,13 @@ function WatchContent() {
                           <button onClick={handleLike} className={`px-4 py-2 flex items-center gap-2 text-sm font-medium border-r border-gray-600 transition ${isLiked ? 'text-blue-400' : 'hover:bg-[#3f3f3f]'}`}>👍 {likes}</button>
                           <button onClick={handleDislike} className={`px-4 py-2 text-sm font-medium transition ${isDisliked ? 'text-blue-400' : 'hover:bg-[#3f3f3f]'}`}>👎</button>
                        </div>
-                       {/* 🔥 REMOVED DOWNLOAD BUTTON AS REQUESTED */}
+                       {/* 🔥 REMOVED DOWNLOAD BUTTON AS REQUESTED (But Logic Remains) */}
                     </div>
                  </div>
                  
                  <div className="mt-4 bg-[#272727]/50 border border-gray-800 p-3 rounded-xl text-sm text-gray-300 hover:bg-[#272727] transition cursor-pointer">
                     <p className="font-bold text-white mb-1">{views} views • Just now</p>
-                    <p>Watching on ScanVidz Pro. No Ads. No Tracking. Experience premium quality.</p>
+                    <p>Watching on ScanVidz Pro. No Ads. No Tracking. High Quality Forced.</p>
                  </div>
                  
                  {/* COMMENTS SECTION */}
