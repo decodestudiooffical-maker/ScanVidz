@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import UserMenu from '@/components/UserMenu'; 
 
 // 🔥 UPDATED BACKEND URL
-const API_BASE_URL = "https://scanvidz-backend.onrender.com";
+const API_BASE_URL = "http://127.0.0.1:8000";
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,7 +50,6 @@ export default function Home() {
       const randomTopic = topics[Math.floor(Math.random() * topics.length)]; 
       
       try {
-          // 🔥 Updated Link Here
           const res = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(randomTopic)}&limit=12&page=${pageNum}`);
           const data = await res.json();
           
@@ -76,7 +75,6 @@ export default function Home() {
   useEffect(() => {
     const timer = setTimeout(() => {
         if (searchQuery.length > 1 && showSuggestions) {
-            // 🔥 Updated Link Here
             fetch(`${API_BASE_URL}/suggestions?q=${encodeURIComponent(searchQuery)}`)
                 .then(res => res.json())
                 .then(data => setSuggestions(data))
@@ -119,15 +117,13 @@ export default function Home() {
         localStorage.setItem('scanvidz_history', JSON.stringify(newHistory));
     } catch(e) {}
     
-    // 🔥 PASSING REAL DATA TO WATCH PAGE
     router.push(`/watch?v=${encodeURIComponent(video.link)}&title=${encodeURIComponent(video.title)}&views=${encodeURIComponent(video.views)}&duration=${encodeURIComponent(video.duration)}&thumbnail=${encodeURIComponent(video.thumbnail)}&channel=${encodeURIComponent(video.channel_name)}&avatar=${encodeURIComponent(video.channel_avatar)}`);
   };
 
-  // 🔥 LOAD MORE HANDLER (Real Infinite Scroll)
   const handleLoadMore = () => {
       const nextPage = page + 1;
       setPage(nextPage);
-      fetchVideos(nextPage, false); // Append more videos
+      fetchVideos(nextPage, false); 
   };
 
   return (
@@ -151,6 +147,7 @@ export default function Home() {
          <div className={`fixed inset-y-0 left-0 z-40 w-64 bg-[#0f0f0f] border-r border-gray-800 transform transition-transform duration-300 md:hidden ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} pt-20`}>
             <div className="p-3 space-y-1">
                <SidebarItem icon="🏠" text="Home" active onClick={() => router.push('/')} isOpen={true} />
+               <SidebarItem icon="🧭" text="Discover" onClick={() => router.push('/discover')} isOpen={true} />
                <SidebarItem icon="💎" text="Best Content" onClick={() => router.push('/best-content')} isOpen={true} />
                <SidebarItem icon="🕒" text="History" onClick={() => router.push('/history')} isOpen={true} />
             </div>
@@ -160,6 +157,8 @@ export default function Home() {
          <aside className={`${isSidebarOpen ? 'w-60' : 'w-[0px]'} bg-[#0f0f0f] hidden md:flex flex-col transition-all duration-300 border-r border-gray-800/50 overflow-hidden`}>
             <div className="p-3 space-y-1 w-60">
                <SidebarItem icon="🏠" text="Home" active onClick={() => router.push('/')} isOpen={isSidebarOpen} />
+               {/* 🔥 ADDED DISCOVER LINK HERE */}
+               <SidebarItem icon="🧭" text="Discover" onClick={() => router.push('/discover')} isOpen={isSidebarOpen} />
                <SidebarItem icon="💎" text="Best Content" onClick={() => router.push('/best-content')} isOpen={isSidebarOpen} />
                <SidebarItem icon="🕒" text="History" onClick={() => router.push('/history')} isOpen={isSidebarOpen} />
             </div>
