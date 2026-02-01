@@ -15,10 +15,6 @@ import subprocess
 import random 
 from collections import Counter 
 
-# --- REMOVED BROKEN LIBRARY (Idea 4) ---
-# We are NOT using 'youtubesearchpython' anymore because it crashes.
-# We are strictly using 'yt-dlp' (The Tank).
-
 # --- DATABASE IMPORTS ---
 from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
@@ -30,7 +26,7 @@ from sqlalchemy.orm import sessionmaker, Session
 
 app = FastAPI()
 
-# Enable CORS (Allows Frontend to talk to Backend securely)
+# Enable CORS - Allows Frontend (Mobile/Laptop) to talk to Backend securely
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -153,6 +149,7 @@ if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
 # --- IDEA 10: ADVANCED USER AGENTS (Browser Spoofing) ---
+# This prevents YouTube from knowing we are a bot.
 USER_AGENTS_LIST = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
@@ -163,7 +160,8 @@ USER_AGENTS_LIST = [
 def get_random_agent():
     return random.choice(USER_AGENTS_LIST)
 
-# Standard Options for YT-DLP
+# --- IDEA 4: YT-DLP ONLY CONFIG ---
+# Standard Options for YT-DLP (The Tank)
 BASE_OPTS = {
     'quiet': True,
     'no_warnings': True,
@@ -237,7 +235,7 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
         db.close()
 
 # =================================================================
-# 🚀 5. IN-MEMORY CACHE & SMART ENGINE (THE BIG UPDATE)
+# 🚀 5. IN-MEMORY CACHE & SMART ENGINE (THE FIX)
 # =================================================================
 
 # Global Cache for Speed
@@ -254,45 +252,45 @@ VIDEO_MEMORY_CACHE = {
 TRENDING_HERO = [
     {
         "id": 1, 
-        "title": "GTA VI", 
+        "title": "GTA VI - Official Trailer", 
         "desc": "Welcome to Leonida. The biggest open world ever created by Rockstar Games.", 
         "trailer_id": "QdBZY2fkU-0", 
         "bg_image": "https://image.tmdb.org/t/p/original/2X5qXy5i5y5y5y5y.jpg"
     },
     {
         "id": 2, 
+        "title": "Deadpool & Wolverine", 
+        "desc": "The ultimate team-up is here. Marvel's multiverse will never be the same.", 
+        "trailer_id": "73_1biulkYk", 
+        "bg_image": "https://image.tmdb.org/t/p/original/yDHYTfA3R0jFYba16jBB1ef8oIt.jpg"
+    },
+    {
+        "id": 3, 
         "title": "Avatar: Fire and Ash", 
         "desc": "The next chapter in the epic saga. Discover the new tribes of Pandora.", 
         "trailer_id": "v7KBK9X7X5k", 
         "bg_image": "https://image.tmdb.org/t/p/original/8rpDcsfLJypbO6vREc0547OTqEv.jpg"
     },
     {
-        "id": 3, 
+        "id": 4, 
         "title": "Captain America: BNW", 
         "desc": "Sam Wilson takes the mantle. A new world order rises.", 
         "trailer_id": "1pHDWnXmK7Y", 
         "bg_image": "https://images.thedirect.com/media/article_full/captain-america-4-sam-wilson-mcu.jpg"
     },
     {
-        "id": 4, 
+        "id": 5, 
         "title": "Mufasa: The Lion King", 
         "desc": "Rafiki tells the legend of Mufasa to young lion cub Kiara.", 
         "trailer_id": "o17MF9vnabg", 
         "bg_image": "https://prod-ripcut-delivery.disney-plus.net/v1/variant/disney/566133020616147171408800/scale?width=1200&aspectRatio=1.78&format=jpeg"
     },
     {
-        "id": 5, 
+        "id": 6, 
         "title": "Moana 2", 
         "desc": "Moana journeys to the far seas of Oceania into dangerous, long-lost waters.", 
         "trailer_id": "hDZ7y8RP5HE", 
         "bg_image": "https://lumiere-a.akamaihd.net/v1/images/p_moana2_payoff_poster_1_0c592376.jpeg"
-    },
-    {
-        "id": 6, 
-        "title": "Deadpool & Wolverine", 
-        "desc": "The ultimate team-up is here. Marvel's multiverse will never be the same.", 
-        "trailer_id": "73_1biulkYk", 
-        "bg_image": "https://image.tmdb.org/t/p/original/yDHYTfA3R0jFYba16jBB1ef8oIt.jpg"
     },
     {
         "id": 7, 
@@ -392,7 +390,7 @@ def perform_search_advanced(query, limit=20):
     """
     cleaned = []
     
-    # Idea 10: Use Random Browser Agent to fool YT
+    # Idea 10: Use Random Browser Agent
     current_agent = get_random_agent()
     
     # Idea 4: Use YT-DLP Only (Robust)
@@ -414,7 +412,7 @@ def perform_search_advanced(query, limit=20):
                 for v in info['entries']:
                     if not v: continue
                     
-                    # Idea 3: Strict Filtering (Clean Title)
+                    # Idea 3: Strict Filtering (Remove Review/Reaction)
                     title_lower = v.get('title', '').lower()
                     if any(bad in title_lower for bad in ['review', 'reaction', 'analysis', 'breakdown', 'explained']):
                         continue
@@ -442,7 +440,7 @@ def perform_search_advanced(query, limit=20):
     except Exception as e:
         print(f"❌ YT-DLP Error: {e}")
 
-    # Idea 6: Fallback if YT-DLP fails
+    # Idea 6: Fallback
     print("⚠️ Switching to Invidious Proxy...")
     return fallback_search_invidious(query, limit)
 
@@ -460,6 +458,7 @@ def refresh_hero_trailers():
     new_hero_list = []
     if results:
         for i, v in enumerate(results):
+            # Clean Title Logic
             clean_title = v['title'].split('|')[0].replace("Trailer", "").replace("(2025)", "").strip()
             new_hero_list.append({
                 "id": i + 1,
@@ -470,10 +469,10 @@ def refresh_hero_trailers():
             })
     
     if len(new_hero_list) >= 5:
-        TRENDING_HERO = new_hero_list[:12]
-        print(f"✅ Hero Updated with {len(TRENDING_HERO)} Safe Trailers!")
+        TRENDING_HERO = new_hero_list[:15]
+        print(f"✅ Hero Updated with {len(TRENDING_HERO)} Fresh Trailers!")
     else:
-        print("⚠️ Not enough safe trailers found. Using Backup List.")
+        print("⚠️ Not enough safe trailers found. Using God Mode Backup.")
 
 def cache_warmer_task():
     """ Runs on startup to fetch data """
@@ -590,7 +589,12 @@ def buy_video(req: PurchaseRequest, db: Session = Depends(get_db)):
 
 @app.get("/discover/hero")
 def get_hero_content():
-    return {"status": "success", "data": TRENDING_HERO}
+    # 🔥 FIX FOR MOBILE: FORCE NO-CACHE
+    # This prevents phones from showing old GTA VI trailer forever.
+    return JSONResponse(
+        content={"status": "success", "data": TRENDING_HERO},
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"}
+    )
 
 @app.get("/discover/category")
 def get_category_videos(tag: str = "Goldmines"):
@@ -642,7 +646,7 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
         elif filter == "Music": search_term += " music video"
         elif filter == "Gaming": search_term += " gameplay"
     
-    results = perform_search_advanced(search_term, limit=limit) 
+    results = perform_search_advanced(search_term, limit=limit) # Using Robust Helper Here Too!
     return {"status": "success", "results": results, "page": page}
 
 @app.get("/meta")
@@ -691,7 +695,7 @@ def get_recommendations(user_id: str = None, db: Session = Depends(get_db)):
                 words = [w.lower() for w in cached.title.split() if len(w) > 4]
                 user_interests.extend(words)
     
-    candidates = perform_search_advanced("trending movies 2025", limit=15)
+    candidates = perform_search_advanced("trending movies 2025", limit=15) # Using Robust Helper
     
     if user_interests:
         interest_query = " ".join(random.sample(user_interests, min(2, len(user_interests))))
