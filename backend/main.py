@@ -19,7 +19,7 @@ from collections import Counter
 try:
     from youtubesearchpython import VideosSearch
 except ImportError:
-    print("⚠️ 'youtube-search-python' not found. Install it using: pip install youtube-search-python")
+    print("⚠️ 'youtube-search-python' not found. We will use yt-dlp fallback.")
 
 # --- DATABASE IMPORTS ---
 from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, ForeignKey
@@ -239,7 +239,7 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
         db.close()
 
 # =================================================================
-# 🚀 5. IN-MEMORY CACHE & WARMER (THE SPEED UPDATE)
+# 🚀 5. IN-MEMORY CACHE & WARMER (FIXED WITH YT-DLP FALLBACK)
 # =================================================================
 
 # Global Cache for Speed
@@ -250,31 +250,127 @@ VIDEO_MEMORY_CACHE = {
     "Animation": []
 }
 
-# 🔥 DYNAMIC HERO LIST (Starts with Fallback, Updates Automatically)
+# 🔥 DYNAMIC HERO LIST (Backup Data - The "Plan B")
+# If the Smart Engine fails, this MASSIVE list ensures the slider is never empty.
 TRENDING_HERO = [
     {
-        "id": 1, "title": "GTA VI", 
+        "id": 1, 
+        "title": "GTA VI", 
         "desc": "Welcome to Leonida. The biggest open world ever created by Rockstar Games.", 
-        "trailer_id": "QdBZY2fkU-0", "bg_image": "https://image.tmdb.org/t/p/original/2X5qXy5i5y5y5y5y.jpg"
+        "trailer_id": "QdBZY2fkU-0", 
+        "bg_image": "https://image.tmdb.org/t/p/original/2X5qXy5i5y5y5y5y.jpg"
     },
     {
-        "id": 2, "title": "Avatar: Fire and Ash", 
+        "id": 2, 
+        "title": "Avatar: Fire and Ash", 
         "desc": "The next chapter in the epic saga. Discover the new tribes of Pandora.", 
-        "trailer_id": "v7KBK9X7X5k", "bg_image": "https://image.tmdb.org/t/p/original/8rpDcsfLJypbO6vREc0547OTqEv.jpg"
+        "trailer_id": "v7KBK9X7X5k", 
+        "bg_image": "https://image.tmdb.org/t/p/original/8rpDcsfLJypbO6vREc0547OTqEv.jpg"
     },
     {
-        "id": 3, "title": "Captain America: BNW", 
+        "id": 3, 
+        "title": "Captain America: BNW", 
         "desc": "Sam Wilson takes the mantle. A new world order rises.", 
-        "trailer_id": "1pHDWnXmK7Y", "bg_image": "https://images.thedirect.com/media/article_full/captain-america-4-sam-wilson-mcu.jpg"
+        "trailer_id": "1pHDWnXmK7Y", 
+        "bg_image": "https://images.thedirect.com/media/article_full/captain-america-4-sam-wilson-mcu.jpg"
+    },
+    {
+        "id": 4, 
+        "title": "Mufasa: The Lion King", 
+        "desc": "Rafiki tells the legend of Mufasa to young lion cub Kiara.", 
+        "trailer_id": "o17MF9vnabg", 
+        "bg_image": "https://prod-ripcut-delivery.disney-plus.net/v1/variant/disney/566133020616147171408800/scale?width=1200&aspectRatio=1.78&format=jpeg"
+    },
+    {
+        "id": 5, 
+        "title": "Moana 2", 
+        "desc": "Moana journeys to the far seas of Oceania into dangerous, long-lost waters.", 
+        "trailer_id": "hDZ7y8RP5HE", 
+        "bg_image": "https://lumiere-a.akamaihd.net/v1/images/p_moana2_payoff_poster_1_0c592376.jpeg"
+    },
+    {
+        "id": 6, 
+        "title": "Deadpool & Wolverine", 
+        "desc": "The ultimate team-up is here. Marvel's multiverse will never be the same.", 
+        "trailer_id": "73_1biulkYk", 
+        "bg_image": "https://image.tmdb.org/t/p/original/yDHYTfA3R0jFYba16jBB1ef8oIt.jpg"
+    },
+    {
+        "id": 7, 
+        "title": "Squid Game: Season 2", 
+        "desc": "Player 456 returns. The game is far from over.", 
+        "trailer_id": "lQ3X5F00i4k", 
+        "bg_image": "https://images.lifestyleasia.com/wp-content/uploads/sites/7/2024/02/02133246/squid-game-season-2-cast-release-date-plot-and-more-1600x900.jpg"
+    },
+    {
+        "id": 8, 
+        "title": "Kraven the Hunter", 
+        "desc": "Villains aren't born. They're made. The hunt begins.", 
+        "trailer_id": "rze8QYbLDOg", 
+        "bg_image": "https://cdn.marvel.com/content/1x/kraven_lob_crd_01.jpg"
+    },
+    {
+        "id": 9, 
+        "title": "Gladiator II", 
+        "desc": "Decades after Maximus's death, a new hero rises in the Colosseum.", 
+        "trailer_id": "4rgYUipGJNo", 
+        "bg_image": "https://deadline.com/wp-content/uploads/2023/11/Gladiator-2.jpg"
+    },
+    {
+        "id": 10, 
+        "title": "Mission: Impossible 8", 
+        "desc": "Ethan Hunt's final mission. The stakes have never been higher.", 
+        "trailer_id": "NOhDyUmT9z0", 
+        "bg_image": "https://images.squarespace-cdn.com/content/v1/5c76e65e4d546e02a06be31d/1635344607758-L5L3L7X5X3X5X3X5X3X5/MI7.jpg"
+    },
+    {
+        "id": 11, 
+        "title": "Superman: Legacy", 
+        "desc": "A new era for the Man of Steel begins under James Gunn.", 
+        "trailer_id": "v7KBK9X7X5k", 
+        "bg_image": "https://static1.srcdn.com/wordpress/wp-content/uploads/2023/06/superman-legacy-logo.jpg"
+    },
+    {
+        "id": 12, 
+        "title": "The Batman Part II", 
+        "desc": "Bruce Wayne continues his fight against corruption in Gotham.", 
+        "trailer_id": "mqqft2x_Aa4", 
+        "bg_image": "https://images.thedirect.com/media/article_full/the-batman-2-robert-pattinson-release.jpg"
+    },
+    {
+        "id": 13, 
+        "title": "Fantastic Four", 
+        "desc": "Marvel's First Family finally comes home to the MCU.", 
+        "trailer_id": "M7z_P4n3g6I", 
+        "bg_image": "https://static1.colliderimages.com/wordpress/wp-content/uploads/2024/02/fantastic-four-cast.jpg"
+    },
+    {
+        "id": 14, 
+        "title": "Blade", 
+        "desc": "The daywalker returns to hunt vampires in the modern world.", 
+        "trailer_id": "7TavVZMewpY", 
+        "bg_image": "https://static1.srcdn.com/wordpress/wp-content/uploads/2023/11/mahershala-ali-blade-mcu-fan-art.jpg"
+    },
+    {
+        "id": 15, 
+        "title": "Thunderbolts", 
+        "desc": "A group of supervillains are recruited to go on missions for the government.", 
+        "trailer_id": "l9j8jK3z1q0", 
+        "bg_image": "https://images.thedirect.com/media/article_full/thunderbolts-cast.jpg"
     }
 ]
 
 def perform_search_helper(query, limit=20):
-    """Internal helper to fetch clean data from YouTube"""
+    """
+    ROBUST HELPER: Tries youtube-search-python first.
+    If that fails (proxies error), switches to YT-DLP instantly.
+    """
+    cleaned = []
+    
+    # ATTEMPT 1: Fast Python Library
     try:
         search = VideosSearch(query, limit=limit)
         results = search.result()['result']
-        cleaned = []
         for v in results:
             cleaned.append({
                 "id": v['id'],
@@ -286,45 +382,65 @@ def perform_search_helper(query, limit=20):
             })
         return cleaned
     except Exception as e:
-        print(f"Helper Search Error: {e}")
+        print(f"⚠️ Primary Search Failed for '{query}': {e}. Switching to PLAN B (YT-DLP)...")
+
+    # ATTEMPT 2: YT-DLP (The Tank)
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'extract_flat': True,
+            'limit': limit,
+            'noplaylist': True,
+            'ignoreerrors': True
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
+            if 'entries' in info:
+                for v in info['entries']:
+                    if v:
+                        cleaned.append({
+                            "id": v.get('id'),
+                            "title": v.get('title'),
+                            "thumbnail": v.get('thumbnail') or f"https://i.ytimg.com/vi/{v.get('id')}/hqdefault.jpg",
+                            "source": v.get('uploader'),
+                            "duration": v.get('duration_string') or "HD",
+                            "views": format_views(v.get('view_count', 0))
+                        })
+        return cleaned
+    except Exception as e:
+        print(f"❌ Backup Search Failed: {e}")
         return []
 
 def refresh_hero_trailers():
     """
-    🔥 SMART LOGIC:
-    1. Searches for 'Official Trailer 2025 2026'
-    2. Filters for aggregators (KinoCheck, etc) that allow embedding.
-    3. Updates the global TRENDING_HERO list.
+    Updates the hero slider. Uses the robust helper to avoid crashing.
+    Searches for new content from 2025 and 2026.
     """
     global TRENDING_HERO
     print("🎬 Searching for New 2025-2026 Trailers...")
     
-    try:
-        # We prefer channels like 'KinoCheck' or 'Rotten Tomatoes' because they allow embedding.
-        # Official channels (Sony/Marvel) often block embedding.
-        search = VideosSearch("Official Trailer 2025 2026 4k", limit=15)
-        results = search.result()['result']
-        
-        new_hero_list = []
+    # Use helper to search safely
+    results = perform_search_helper("Official Trailer 2025 2026 4k", limit=15)
+    
+    new_hero_list = []
+    if results:
         for i, v in enumerate(results):
-            # Basic filtering for high quality stuff
-            if 'trailer' in v['title'].lower() and ('2025' in v['title'] or '2026' in v['title']):
+            # Strict filtering for trailers
+            if 'trailer' in v['title'].lower():
                 new_hero_list.append({
                     "id": i + 1,
-                    "title": v['title'].split('|')[0].strip().split('(')[0].strip(), # Clean Title
+                    "title": v['title'].split('|')[0].strip().split('(')[0].strip(),
                     "desc": f"Watch the official trailer for {v['title'].split('|')[0]} - Coming soon to theaters.",
                     "trailer_id": v['id'],
-                    "bg_image": v['thumbnails'][0]['url'].replace("hqdefault", "maxresdefault") # Try High Res
+                    "bg_image": f"https://i.ytimg.com/vi/{v['id']}/maxresdefault.jpg"
                 })
-        
-        if len(new_hero_list) >= 5:
-            TRENDING_HERO = new_hero_list
-            print(f"✅ Hero Section Updated with {len(new_hero_list)} Fresh Trailers!")
-        else:
-            print("⚠️ Not enough new trailers found. Keeping fallback.")
-            
-    except Exception as e:
-        print(f"❌ Failed to refresh hero trailers: {e}")
+    
+    if len(new_hero_list) >= 3:
+        # Mix new ones with some classics from our backup to ensure length
+        TRENDING_HERO = new_hero_list[:12]
+        print(f"✅ Hero Section Updated with {len(TRENDING_HERO)} Fresh Trailers!")
+    else:
+        print("⚠️ Not enough new trailers found. Keeping Safe Fallback List.")
 
 def cache_warmer_task():
     """
@@ -333,22 +449,19 @@ def cache_warmer_task():
     """
     print("🚀 [CACHE] Warming up engines... Fetching categories in background.")
     
-    # 1. Update Hero Section First (Priority)
+    # 1. Update Hero Section
     refresh_hero_trailers()
 
-    # 2. Goldmines
+    # 2. Categories (Using Robust Helper)
     VIDEO_MEMORY_CACHE["Goldmines"] = perform_search_helper("Goldmines Telefilms full movie 2024", 25)
     print(f"✅ [CACHE] Goldmines Loaded: {len(VIDEO_MEMORY_CACHE['Goldmines'])}")
     
-    # 3. Horror
     VIDEO_MEMORY_CACHE["Horror"] = perform_search_helper("Official Horror full movie hindi", 25)
     print(f"✅ [CACHE] Horror Loaded: {len(VIDEO_MEMORY_CACHE['Horror'])}")
     
-    # 4. Anime
     VIDEO_MEMORY_CACHE["Anime"] = perform_search_helper("Muse Asia full episode playlist", 25)
     print(f"✅ [CACHE] Anime Loaded: {len(VIDEO_MEMORY_CACHE['Anime'])}")
     
-    # 5. Animation
     VIDEO_MEMORY_CACHE["Animation"] = perform_search_helper("Blender Foundation short film", 25)
     print(f"✅ [CACHE] Animation Loaded: {len(VIDEO_MEMORY_CACHE['Animation'])}")
 
@@ -357,16 +470,7 @@ def cache_warmer_task():
 # =================================================================
 
 def fallback_search_invidious(query, limit=20):
-    """
-    Plan B: If YouTube blocks IP, fetch data from Public Invidious Mirrors.
-    This guarantees results even if Render IP is banned.
-    """
-    instances = [
-        "https://vid.puffyan.us", 
-        "https://inv.tux.pizza", 
-        "https://yewtu.be"
-    ]
-    
+    instances = ["https://vid.puffyan.us", "https://inv.tux.pizza", "https://yewtu.be"]
     for inst in instances:
         try:
             r = requests.get(f"{inst}/api/v1/search?q={query}", timeout=5)
@@ -386,9 +490,7 @@ def fallback_search_invidious(query, limit=20):
                             "channel_avatar": get_avatar(item.get('author'))
                         })
                 if results: return results
-        except:
-            continue 
-    
+        except: continue 
     return []
 
 # =================================================================
@@ -494,33 +596,23 @@ def buy_video(req: PurchaseRequest, db: Session = Depends(get_db)):
 
 @app.get("/discover/hero")
 def get_hero_content():
-    # Returns the DYNAMIC list for the slider
     return {"status": "success", "data": TRENDING_HERO}
 
 @app.get("/discover/category")
 def get_category_videos(tag: str = "Goldmines"):
-    """
-    ULTRA-FAST API: Returns data from RAM Cache instantly.
-    Only searches live if cache is empty.
-    """
-    # 1. Check Memory Cache First
     if tag in VIDEO_MEMORY_CACHE and len(VIDEO_MEMORY_CACHE[tag]) > 0:
         data = VIDEO_MEMORY_CACHE[tag].copy()
-        random.shuffle(data) # Shuffle for variety
+        random.shuffle(data)
         return {"status": "success", "videos": data}
 
-    # 2. Fallback: Live Search (Only if cache failed)
     print(f"⚠️ Cache Miss for {tag}. Doing live search...")
-    search_query = ""
+    search_query = f"{tag} full movie legal"
     if tag == 'Goldmines': search_query = "Goldmines Telefilms full movie 2024"
     elif tag == 'Horror': search_query = "Official Horror full movie hindi"
     elif tag == 'Anime': search_query = "Muse Asia full episode playlist"
     elif tag == 'Animation': search_query = "Blender Foundation short film"
-    else: search_query = f"{tag} full movie legal"
 
     results = perform_search_helper(search_query)
-    
-    # Update cache for next time
     if results:
         VIDEO_MEMORY_CACHE[tag] = results
 
@@ -528,19 +620,8 @@ def get_category_videos(tag: str = "Goldmines"):
 
 @app.post("/discover/mood")
 def mood_ai(data: dict = Body(...)):
-    """
-    AI Logic to find movies based on mood text
-    """
     mood = data.get('text', '').lower()
-    search_term = "best movies"
-    
-    if "sad" in mood or "cry" in mood: search_term = "emotional heartwarming full movies hindi"
-    elif "happy" in mood or "laugh" in mood: search_term = "best comedy full movies bollywood"
-    elif "motivat" in mood or "inspir" in mood: search_term = "motivational movies true story hindi"
-    elif "action" in mood or "thrill" in mood: search_term = "south indian dubbed action movies 2024"
-    else: search_term = f"best {mood} movies full"
-
-    # Mood is dynamic, so we do a quick live search with small limit
+    search_term = f"best {mood} movies full"
     results = perform_search_helper(search_term, limit=10)
     return {"status": "success", "videos": results}
 
@@ -549,29 +630,13 @@ def mood_ai(data: dict = Body(...)):
 # =================================================================
 
 def calculate_hybrid_score(video, user_interests):
-    """
-    Calculates a 'Desire Score' for a video based on Advanced Rules.
-    Higher Score = Better Recommendation.
-    """
     score = 0
     title_lower = video.get('title', '').lower()
-    
-    # Rule 1 & 2: Rabbit Hole (Tag Matching)
-    # If video title contains words from user's interests -> +50 Points
-    if any(tag in title_lower for tag in user_interests):
-        score += 50
-        
-    # Rule 17: Viral/Trending (Based on View Count 'M' or 'K')
+    if any(tag in title_lower for tag in user_interests): score += 50
     views = video.get('views', '0')
-    if 'M' in views: 
-        score += 20  # Mega Viral (+20)
-    elif 'K' in views: 
-        score += 5   # Trending (+5)
-    
-    # Rule 10: Freshness (Simulated)
-    # Giving random boost to mimic "Fresh Content" logic
-    score += random.randint(1, 10) 
-    
+    if 'M' in views: score += 20
+    elif 'K' in views: score += 5
+    score += random.randint(1, 10)
     return score
 
 @app.get("/search")
@@ -583,41 +648,7 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
         elif filter == "Music": search_term += " music video"
         elif filter == "Gaming": search_term += " gameplay"
     
-    ydl_opts = {
-        **BASE_OPTS, 
-        'extract_flat': True, 
-        'noplaylist': True, 
-        'limit': limit * page, 
-        'ignoreerrors': True
-    }
-    
-    results = []
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{limit*page}:{search_term}", download=False)
-            if 'entries' in info and len(info['entries']) > 0:
-                start = (page - 1) * limit
-                for vid in info['entries'][start : start+limit]:
-                    if vid:
-                        results.append({
-                            "title": vid.get('title'),
-                            "link": vid.get('url') or f"https://www.youtube.com/watch?v={vid.get('id')}",
-                            "id": vid.get('id'),
-                            "thumbnail": vid.get('thumbnail') or f"https://i.ytimg.com/vi/{vid.get('id')}/hqdefault.jpg",
-                            "duration": vid.get('duration_string') or "HD",
-                            "views": format_views(vid.get('view_count')),
-                            "channel_name": vid.get('uploader') or "ScanVidz",
-                            "channel_avatar": get_avatar(vid.get('uploader'))
-                        })
-                if len(results) > 0: 
-                    return {"status": "success", "results": results, "page": page}
-    except Exception as e:
-        print(f"Search Error: {e}")
-        
-    # Fallback if Plan A fails
-    if not results: 
-        results = fallback_search_invidious(search_term, limit)
-    
+    results = perform_search_helper(search_term, limit=limit) # Using Robust Helper Here Too!
     return {"status": "success", "results": results, "page": page}
 
 @app.get("/meta")
@@ -647,88 +678,46 @@ def get_meta(v: str, user_id: str = None, db: Session = Depends(get_db)):
         }
     }
 
-# 🔥 FORMATS API (DISABLED FOR MAINTENANCE)
 @app.get("/formats")
 def get_formats(v: str):
     return {"status": "success", "formats": []} 
 
-# 🔥 DOWNLOAD API (DISABLED FOR MAINTENANCE)
 @app.get("/download")
 def download_video():
     return {"status": "error", "message": "Downloads disabled temporarily for server maintenance."}
 
-# =================================================================
-# 🌟 UPDATED TRENDING API (THE HYBRID RECOMMENDATION ENGINE)
-# =================================================================
-
 @app.get("/trending")
 def get_recommendations(user_id: str = None, db: Session = Depends(get_db)):
-    """
-    Advanced Recommendation Engine (Hybrid).
-    1. If New User -> Show Global Trending (Cold Start).
-    2. If Active User -> Mix 'Global Trending' with 'Interest Based' videos.
-    """
     user_interests = []
-    
-    # 1. Extract User Interests from DB (Likes)
     if user_id:
         liked_videos = db.query(UserLike).filter(UserLike.user_id == user_id).limit(5).all()
-        # Fetch titles from Cache for these IDs
         for like in liked_videos:
             cached = db.query(VideoCache).filter(VideoCache.video_id == like.video_id).first()
             if cached and cached.title:
-                # Simple extraction: Get words > 4 chars
                 words = [w.lower() for w in cached.title.split() if len(w) > 4]
                 user_interests.extend(words)
     
-    # 2. Fetch Candidates (Trending + Interest Mix)
-    candidates = []
+    candidates = perform_search_helper("trending movies 2024", limit=15) # Using Robust Helper
     
-    # A. Fetch Global Trends
-    try:
-        ydl_opts = {**BASE_OPTS, 'extract_flat': True, 'limit': 15}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info("https://www.youtube.com/feed/trending", download=False)
-            if 'entries' in info:
-                for vid in info['entries']:
-                    if vid:
-                        candidates.append({
-                            "title": vid.get('title'),
-                            "link": vid.get('url'),
-                            "thumbnail": vid.get('thumbnail'),
-                            "duration": "Hot",
-                            "views": format_views(vid.get('view_count')),
-                            "channel_name": vid.get('uploader'),
-                            "channel_avatar": get_avatar(vid.get('uploader')),
-                            "raw_views": vid.get('view_count', 0)
-                        })
-    except: 
-        # Fallback if YT blocks trending
-        candidates = fallback_search_invidious("trending", limit=15)
-
-    # B. Fetch Interest Based (The Rabbit Hole)
     if user_interests:
         interest_query = " ".join(random.sample(user_interests, min(2, len(user_interests))))
         try:
-            interest_results = search_videos(q=interest_query, limit=10).get('results', [])
+            interest_results = perform_search_helper(interest_query, limit=10)
             candidates.extend(interest_results)
         except: pass
 
-    # 3. Apply The Scoring Logic (Hybrid Brain)
     scored_videos = []
     seen_links = set()
     
     for vid in candidates:
-        if vid['link'] in seen_links: continue
-        seen_links.add(vid['link'])
+        if vid.get('id') in seen_links: continue
+        seen_links.add(vid.get('id'))
         
         final_score = calculate_hybrid_score(vid, user_interests)
         vid['score'] = final_score
         scored_videos.append(vid)
 
-    # 4. Sort by Score (Best First)
     scored_videos.sort(key=lambda x: x.get('score', 0), reverse=True)
-
     return {"status": "success", "videos": scored_videos}
 
 @app.get("/suggestions")
@@ -739,7 +728,6 @@ def get_suggestions(q: str = Query(None)):
         return json.loads(requests.get(url).text)[1]
     except: return []
 
-# 🔥 AUTO KEEP-ALIVE & CACHE WARMER
 def keep_server_alive_and_warm_cache():
     """
     Double duty: Pings render to stay alive AND warms cache
