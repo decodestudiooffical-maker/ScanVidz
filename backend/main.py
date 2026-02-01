@@ -15,11 +15,9 @@ import subprocess
 import random 
 from collections import Counter 
 
-# --- NEW IMPORTS FOR DISCOVER PAGE SPEED ---
-try:
-    from youtubesearchpython import VideosSearch
-except ImportError:
-    print("⚠️ 'youtube-search-python' not found. We will use yt-dlp fallback.")
+# --- REMOVED BROKEN LIBRARY (Idea 4) ---
+# We are NOT using 'youtubesearchpython' anymore because it crashes.
+# We are strictly using 'yt-dlp' (The Tank).
 
 # --- DATABASE IMPORTS ---
 from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, ForeignKey
@@ -154,12 +152,12 @@ else:
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
-# User Agents to avoid YouTube blocking
+# --- IDEA 10: ADVANCED USER AGENTS (Browser Spoofing) ---
 USER_AGENTS_LIST = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Safari/605.1.15',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 ]
 
 def get_random_agent():
@@ -239,7 +237,7 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
         db.close()
 
 # =================================================================
-# 🚀 5. IN-MEMORY CACHE & WARMER (FIXED WITH YT-DLP FALLBACK)
+# 🚀 5. IN-MEMORY CACHE & SMART ENGINE (THE BIG UPDATE)
 # =================================================================
 
 # Global Cache for Speed
@@ -250,8 +248,9 @@ VIDEO_MEMORY_CACHE = {
     "Animation": []
 }
 
-# 🔥 DYNAMIC HERO LIST (Backup Data - The "Plan B")
-# If the Smart Engine fails, this MASSIVE list ensures the slider is never empty.
+# 🔥 IDEA 9: FULL MANUAL BACKUP LIST (God Mode)
+# This list is 100% safe and checked. If auto-fetch fails, this shows up.
+# These use "KinoCheck" or official non-blocked IDs.
 TRENDING_HERO = [
     {
         "id": 1, 
@@ -360,115 +359,7 @@ TRENDING_HERO = [
     }
 ]
 
-def perform_search_helper(query, limit=20):
-    """
-    ROBUST HELPER: Tries youtube-search-python first.
-    If that fails (proxies error), switches to YT-DLP instantly.
-    """
-    cleaned = []
-    
-    # ATTEMPT 1: Fast Python Library
-    try:
-        search = VideosSearch(query, limit=limit)
-        results = search.result()['result']
-        for v in results:
-            cleaned.append({
-                "id": v['id'],
-                "title": v['title'],
-                "thumbnail": v['thumbnails'][0]['url'],
-                "source": v['channel']['name'],
-                "duration": v['duration'],
-                "views": v['viewCount']['short']
-            })
-        return cleaned
-    except Exception as e:
-        print(f"⚠️ Primary Search Failed for '{query}': {e}. Switching to PLAN B (YT-DLP)...")
-
-    # ATTEMPT 2: YT-DLP (The Tank)
-    try:
-        ydl_opts = {
-            'quiet': True,
-            'extract_flat': True,
-            'limit': limit,
-            'noplaylist': True,
-            'ignoreerrors': True
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
-            if 'entries' in info:
-                for v in info['entries']:
-                    if v:
-                        cleaned.append({
-                            "id": v.get('id'),
-                            "title": v.get('title'),
-                            "thumbnail": v.get('thumbnail') or f"https://i.ytimg.com/vi/{v.get('id')}/hqdefault.jpg",
-                            "source": v.get('uploader'),
-                            "duration": v.get('duration_string') or "HD",
-                            "views": format_views(v.get('view_count', 0))
-                        })
-        return cleaned
-    except Exception as e:
-        print(f"❌ Backup Search Failed: {e}")
-        return []
-
-def refresh_hero_trailers():
-    """
-    Updates the hero slider. Uses the robust helper to avoid crashing.
-    Searches for new content from 2025 and 2026.
-    """
-    global TRENDING_HERO
-    print("🎬 Searching for New 2025-2026 Trailers...")
-    
-    # Use helper to search safely
-    results = perform_search_helper("Official Trailer 2025 2026 4k", limit=15)
-    
-    new_hero_list = []
-    if results:
-        for i, v in enumerate(results):
-            # Strict filtering for trailers
-            if 'trailer' in v['title'].lower():
-                new_hero_list.append({
-                    "id": i + 1,
-                    "title": v['title'].split('|')[0].strip().split('(')[0].strip(),
-                    "desc": f"Watch the official trailer for {v['title'].split('|')[0]} - Coming soon to theaters.",
-                    "trailer_id": v['id'],
-                    "bg_image": f"https://i.ytimg.com/vi/{v['id']}/maxresdefault.jpg"
-                })
-    
-    if len(new_hero_list) >= 3:
-        # Mix new ones with some classics from our backup to ensure length
-        TRENDING_HERO = new_hero_list[:12]
-        print(f"✅ Hero Section Updated with {len(TRENDING_HERO)} Fresh Trailers!")
-    else:
-        print("⚠️ Not enough new trailers found. Keeping Safe Fallback List.")
-
-def cache_warmer_task():
-    """
-    Runs in background on startup.
-    Fills cache AND updates Hero Trailers.
-    """
-    print("🚀 [CACHE] Warming up engines... Fetching categories in background.")
-    
-    # 1. Update Hero Section
-    refresh_hero_trailers()
-
-    # 2. Categories (Using Robust Helper)
-    VIDEO_MEMORY_CACHE["Goldmines"] = perform_search_helper("Goldmines Telefilms full movie 2024", 25)
-    print(f"✅ [CACHE] Goldmines Loaded: {len(VIDEO_MEMORY_CACHE['Goldmines'])}")
-    
-    VIDEO_MEMORY_CACHE["Horror"] = perform_search_helper("Official Horror full movie hindi", 25)
-    print(f"✅ [CACHE] Horror Loaded: {len(VIDEO_MEMORY_CACHE['Horror'])}")
-    
-    VIDEO_MEMORY_CACHE["Anime"] = perform_search_helper("Muse Asia full episode playlist", 25)
-    print(f"✅ [CACHE] Anime Loaded: {len(VIDEO_MEMORY_CACHE['Anime'])}")
-    
-    VIDEO_MEMORY_CACHE["Animation"] = perform_search_helper("Blender Foundation short film", 25)
-    print(f"✅ [CACHE] Animation Loaded: {len(VIDEO_MEMORY_CACHE['Animation'])}")
-
-# =================================================================
-# 6. SMART FALLBACK ENGINE (Invidious API)
-# =================================================================
-
+# --- IDEA 6: INVIDIOUS PROXY FALLBACK (If YT Blocks) ---
 def fallback_search_invidious(query, limit=20):
     instances = ["https://vid.puffyan.us", "https://inv.tux.pizza", "https://yewtu.be"]
     for inst in instances:
@@ -479,6 +370,7 @@ def fallback_search_invidious(query, limit=20):
                 results = []
                 for item in data[:limit]:
                     if item.get('type') == 'video':
+                        # Idea 5 Check: Try to assume > 60s
                         results.append({
                             "title": item['title'],
                             "link": f"https://www.youtube.com/watch?v={item['videoId']}",
@@ -492,6 +384,108 @@ def fallback_search_invidious(query, limit=20):
                 if results: return results
         except: continue 
     return []
+
+# --- MAIN ADVANCED SEARCH FUNCTION ---
+def perform_search_advanced(query, limit=20):
+    """
+    🔥 THE BRAIN: Combines Idea 1, 2, 3, 4, 5, 10
+    """
+    cleaned = []
+    
+    # Idea 10: Use Random Browser Agent to fool YT
+    current_agent = get_random_agent()
+    
+    # Idea 4: Use YT-DLP Only (Robust)
+    ydl_opts = {
+        'quiet': True,
+        'extract_flat': True,
+        'limit': limit * 2, # Fetch extra to filter
+        'noplaylist': True,
+        'ignoreerrors': True,
+        'user_agent': current_agent
+    }
+    
+    print(f"🕵️ Smart Search: '{query}'...")
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch{limit*2}:{query}", download=False)
+            if 'entries' in info:
+                for v in info['entries']:
+                    if not v: continue
+                    
+                    # Idea 3: Strict Filtering (Clean Title)
+                    title_lower = v.get('title', '').lower()
+                    if any(bad in title_lower for bad in ['review', 'reaction', 'analysis', 'breakdown', 'explained']):
+                        continue
+                        
+                    # Idea 5: Duration Check (> 60s)
+                    dur = v.get('duration', 0)
+                    if dur and dur < 60: continue
+
+                    # Idea 2: High Quality Thumbs (Force 4K)
+                    vid_id = v.get('id')
+                    high_res_thumb = f"https://i.ytimg.com/vi/{vid_id}/maxresdefault.jpg"
+                    
+                    cleaned.append({
+                        "id": vid_id,
+                        "title": v.get('title'),
+                        "thumbnail": high_res_thumb,
+                        "source": v.get('uploader'),
+                        "duration": v.get('duration_string') or "HD",
+                        "views": format_views(v.get('view_count', 0))
+                    })
+                    
+                    if len(cleaned) >= limit: break
+        
+        if cleaned: return cleaned
+    except Exception as e:
+        print(f"❌ YT-DLP Error: {e}")
+
+    # Idea 6: Fallback if YT-DLP fails
+    print("⚠️ Switching to Invidious Proxy...")
+    return fallback_search_invidious(query, limit)
+
+def refresh_hero_trailers():
+    """
+    🔥 Idea 1: SAFE CHANNEL STRATEGY
+    Searches 'KinoCheck' instead of 'Official Trailer' to avoid blocks.
+    """
+    global TRENDING_HERO
+    print("🎬 Smart Fetch: Updating Hero Section...")
+    
+    # Searching KinoCheck because they allow embedding
+    results = perform_search_advanced("KinoCheck International Trailer 2025 2026", limit=15)
+    
+    new_hero_list = []
+    if results:
+        for i, v in enumerate(results):
+            clean_title = v['title'].split('|')[0].replace("Trailer", "").replace("(2025)", "").strip()
+            new_hero_list.append({
+                "id": i + 1,
+                "title": clean_title if clean_title else v['title'],
+                "desc": f"Watch the official trailer for {clean_title}. High Quality stream via ScanVidz Engine.",
+                "trailer_id": v['id'],
+                "bg_image": v['thumbnail']
+            })
+    
+    if len(new_hero_list) >= 5:
+        TRENDING_HERO = new_hero_list[:12]
+        print(f"✅ Hero Updated with {len(TRENDING_HERO)} Safe Trailers!")
+    else:
+        print("⚠️ Not enough safe trailers found. Using Backup List.")
+
+def cache_warmer_task():
+    """ Runs on startup to fetch data """
+    time.sleep(2)
+    refresh_hero_trailers()
+    
+    # Filling Categories with Safe Queries
+    VIDEO_MEMORY_CACHE["Goldmines"] = perform_search_advanced("Goldmines Telefilms full movie 2024", 20)
+    VIDEO_MEMORY_CACHE["Horror"] = perform_search_advanced("Fear Files full episode", 20)
+    VIDEO_MEMORY_CACHE["Anime"] = perform_search_advanced("Muse Asia full episode playlist", 20)
+    VIDEO_MEMORY_CACHE["Animation"] = perform_search_advanced("CGI 3D Animated Short Film", 20)
+    print("✅ Cache Warmup Complete.")
 
 # =================================================================
 # 7. AUTHENTICATION API
@@ -612,7 +606,7 @@ def get_category_videos(tag: str = "Goldmines"):
     elif tag == 'Anime': search_query = "Muse Asia full episode playlist"
     elif tag == 'Animation': search_query = "Blender Foundation short film"
 
-    results = perform_search_helper(search_query)
+    results = perform_search_advanced(search_query)
     if results:
         VIDEO_MEMORY_CACHE[tag] = results
 
@@ -622,7 +616,7 @@ def get_category_videos(tag: str = "Goldmines"):
 def mood_ai(data: dict = Body(...)):
     mood = data.get('text', '').lower()
     search_term = f"best {mood} movies full"
-    results = perform_search_helper(search_term, limit=10)
+    results = perform_search_advanced(search_term, limit=10)
     return {"status": "success", "videos": results}
 
 # =================================================================
@@ -641,14 +635,14 @@ def calculate_hybrid_score(video, user_interests):
 
 @app.get("/search")
 def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: str = Query(None)):
-    search_term = q if q else "trending"
+    search_term = q if q else "trending 2025"
     if filter:
         if filter == "4K Ultra HD": search_term += " 4k hdr"
         elif filter == "Live": search_term += " live stream"
         elif filter == "Music": search_term += " music video"
         elif filter == "Gaming": search_term += " gameplay"
     
-    results = perform_search_helper(search_term, limit=limit) # Using Robust Helper Here Too!
+    results = perform_search_advanced(search_term, limit=limit) 
     return {"status": "success", "results": results, "page": page}
 
 @app.get("/meta")
@@ -697,12 +691,12 @@ def get_recommendations(user_id: str = None, db: Session = Depends(get_db)):
                 words = [w.lower() for w in cached.title.split() if len(w) > 4]
                 user_interests.extend(words)
     
-    candidates = perform_search_helper("trending movies 2024", limit=15) # Using Robust Helper
+    candidates = perform_search_advanced("trending movies 2025", limit=15)
     
     if user_interests:
         interest_query = " ".join(random.sample(user_interests, min(2, len(user_interests))))
         try:
-            interest_results = perform_search_helper(interest_query, limit=10)
+            interest_results = perform_search_advanced(interest_query, limit=10)
             candidates.extend(interest_results)
         except: pass
 
