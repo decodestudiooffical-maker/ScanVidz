@@ -46,6 +46,7 @@ export default function DiscoverPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [isPlayingHero, setIsPlayingHero] = useState(true); 
+  const [player, setPlayer] = useState<any>(null); // Player Reference for Volume Control
 
   // --- 1. LOAD HERO DATA ---
   useEffect(() => {
@@ -62,17 +63,17 @@ export default function DiscoverPage() {
       });
   }, []);
 
-  // --- 2. AUTO SLIDE LOGIC (Every 8 Seconds) ---
+  // --- 2. 30 SECOND TIMER LOGIC (Auto Slide) ---
   useEffect(() => {
     if (heroList.length <= 1) return; // Don't slide if only 1 item
     
+    // Change slide every 30 seconds (matches video end time)
     const interval = setInterval(() => {
-        setCurrentSlide((prev) => (prev + 1) % heroList.length);
-        setIsPlayingHero(true); // Ensure play state is active on slide change
-    }, 8000); // 8 Seconds
+        nextSlide();
+    }, 30000); 
 
     return () => clearInterval(interval);
-  }, [heroList]);
+  }, [heroList, currentSlide]); // Reset timer on slide change
 
   // --- SLIDER CONTROLS ---
   const nextSlide = () => {
@@ -147,7 +148,32 @@ export default function DiscoverPage() {
     if(searchQuery.trim()) router.push(`/search?q=${encodeURIComponent(searchQuery)}`);
   };
 
-  // YouTube Options for Slider
+  // --- SMART PLAYER EVENTS ---
+  
+  // 1. Set Volume & Unmute when Ready
+  const onPlayerReady = (event: any) => {
+      setPlayer(event.target);
+      // Attempt to set volume to 50% and unmute
+      // Note: Browsers block unmuted autoplay if user hasn't interacted with page
+      try {
+          event.target.setVolume(50);
+          event.target.unMute();
+          event.target.playVideo();
+      } catch(e) {}
+  };
+
+  // 2. Skip to next video if error (Unavailable)
+  const onPlayerError = (event: any) => {
+      console.log("Video Error (Skipping):", event.data);
+      nextSlide();
+  };
+
+  // 3. Skip to next video when ended (30s reached)
+  const onPlayerEnd = (event: any) => {
+      nextSlide();
+  };
+
+  // YouTube Options
   const heroOpts = {
       height: '100%',
       width: '100%',
@@ -156,8 +182,9 @@ export default function DiscoverPage() {
           controls: 0,
           rel: 0,
           showinfo: 0,
-          mute: 1, // Mute Required for Autoplay
-          loop: 1,
+          mute: 0,   // Try to play with sound
+          start: 0,
+          end: 30,   // Force cut after 30 seconds
           modestbranding: 1,
           origin: typeof window !== 'undefined' ? window.location.origin : undefined
       },
@@ -271,7 +298,9 @@ export default function DiscoverPage() {
                                             videoId={item.trailer_id} 
                                             opts={heroOpts} 
                                             className="w-full h-full"
-                                            onEnd={(e: any) => e.target.playVideo()}
+                                            onReady={onPlayerReady}
+                                            onError={onPlayerError}
+                                            onEnd={onPlayerEnd}
                                           />
                                       </div>
                                  ) : (
@@ -285,9 +314,9 @@ export default function DiscoverPage() {
                       </div>
 
                       {/* Content Overlay */}
-                      <div className="absolute bottom-0 left-0 p-6 md:p-12 w-full md:max-w-3xl z-30">
+                      <div className="absolute bottom-0 left-0 p-6 md:p-12 w-full md:max-w-3xl z-30 pointer-events-none">
                           {/* Animate text when slide changes */}
-                          <div key={currentSlide} className="animate-in slide-in-from-left-5 duration-700">
+                          <div key={currentSlide} className="animate-in slide-in-from-left-5 duration-700 pointer-events-auto">
                               <span className="bg-red-600 text-[10px] md:text-xs font-bold px-2 py-1 md:px-3 rounded uppercase tracking-widest mb-2 md:mb-4 inline-block shadow-lg">
                                   #{currentSlide + 1} Trending Now
                               </span>

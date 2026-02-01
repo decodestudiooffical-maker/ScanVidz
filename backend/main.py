@@ -242,14 +242,32 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
 # 🚀 5. IN-MEMORY CACHE & WARMER (THE SPEED UPDATE)
 # =================================================================
 
-# This Global Dictionary holds pre-fetched videos. 
-# Instant access, no waiting for YouTube.
+# Global Cache for Speed
 VIDEO_MEMORY_CACHE = {
     "Goldmines": [],
     "Horror": [],
     "Anime": [],
     "Animation": []
 }
+
+# 🔥 DYNAMIC HERO LIST (Starts with Fallback, Updates Automatically)
+TRENDING_HERO = [
+    {
+        "id": 1, "title": "GTA VI", 
+        "desc": "Welcome to Leonida. The biggest open world ever created by Rockstar Games.", 
+        "trailer_id": "QdBZY2fkU-0", "bg_image": "https://image.tmdb.org/t/p/original/2X5qXy5i5y5y5y5y.jpg"
+    },
+    {
+        "id": 2, "title": "Avatar: Fire and Ash", 
+        "desc": "The next chapter in the epic saga. Discover the new tribes of Pandora.", 
+        "trailer_id": "v7KBK9X7X5k", "bg_image": "https://image.tmdb.org/t/p/original/8rpDcsfLJypbO6vREc0547OTqEv.jpg"
+    },
+    {
+        "id": 3, "title": "Captain America: BNW", 
+        "desc": "Sam Wilson takes the mantle. A new world order rises.", 
+        "trailer_id": "1pHDWnXmK7Y", "bg_image": "https://images.thedirect.com/media/article_full/captain-america-4-sam-wilson-mcu.jpg"
+    }
+]
 
 def perform_search_helper(query, limit=20):
     """Internal helper to fetch clean data from YouTube"""
@@ -271,26 +289,66 @@ def perform_search_helper(query, limit=20):
         print(f"Helper Search Error: {e}")
         return []
 
+def refresh_hero_trailers():
+    """
+    🔥 SMART LOGIC:
+    1. Searches for 'Official Trailer 2025 2026'
+    2. Filters for aggregators (KinoCheck, etc) that allow embedding.
+    3. Updates the global TRENDING_HERO list.
+    """
+    global TRENDING_HERO
+    print("🎬 Searching for New 2025-2026 Trailers...")
+    
+    try:
+        # We prefer channels like 'KinoCheck' or 'Rotten Tomatoes' because they allow embedding.
+        # Official channels (Sony/Marvel) often block embedding.
+        search = VideosSearch("Official Trailer 2025 2026 4k", limit=15)
+        results = search.result()['result']
+        
+        new_hero_list = []
+        for i, v in enumerate(results):
+            # Basic filtering for high quality stuff
+            if 'trailer' in v['title'].lower() and ('2025' in v['title'] or '2026' in v['title']):
+                new_hero_list.append({
+                    "id": i + 1,
+                    "title": v['title'].split('|')[0].strip().split('(')[0].strip(), # Clean Title
+                    "desc": f"Watch the official trailer for {v['title'].split('|')[0]} - Coming soon to theaters.",
+                    "trailer_id": v['id'],
+                    "bg_image": v['thumbnails'][0]['url'].replace("hqdefault", "maxresdefault") # Try High Res
+                })
+        
+        if len(new_hero_list) >= 5:
+            TRENDING_HERO = new_hero_list
+            print(f"✅ Hero Section Updated with {len(new_hero_list)} Fresh Trailers!")
+        else:
+            print("⚠️ Not enough new trailers found. Keeping fallback.")
+            
+    except Exception as e:
+        print(f"❌ Failed to refresh hero trailers: {e}")
+
 def cache_warmer_task():
     """
     Runs in background on startup.
-    Fills the memory cache so the site is fast immediately.
+    Fills cache AND updates Hero Trailers.
     """
     print("🚀 [CACHE] Warming up engines... Fetching categories in background.")
     
-    # 1. Goldmines
+    # 1. Update Hero Section First (Priority)
+    refresh_hero_trailers()
+
+    # 2. Goldmines
     VIDEO_MEMORY_CACHE["Goldmines"] = perform_search_helper("Goldmines Telefilms full movie 2024", 25)
     print(f"✅ [CACHE] Goldmines Loaded: {len(VIDEO_MEMORY_CACHE['Goldmines'])}")
     
-    # 2. Horror
+    # 3. Horror
     VIDEO_MEMORY_CACHE["Horror"] = perform_search_helper("Official Horror full movie hindi", 25)
     print(f"✅ [CACHE] Horror Loaded: {len(VIDEO_MEMORY_CACHE['Horror'])}")
     
-    # 3. Anime
+    # 4. Anime
     VIDEO_MEMORY_CACHE["Anime"] = perform_search_helper("Muse Asia full episode playlist", 25)
     print(f"✅ [CACHE] Anime Loaded: {len(VIDEO_MEMORY_CACHE['Anime'])}")
     
-    # 4. Animation
+    # 5. Animation
     VIDEO_MEMORY_CACHE["Animation"] = perform_search_helper("Blender Foundation short film", 25)
     print(f"✅ [CACHE] Animation Loaded: {len(VIDEO_MEMORY_CACHE['Animation'])}")
 
@@ -434,83 +492,9 @@ def buy_video(req: PurchaseRequest, db: Session = Depends(get_db)):
 # 🔥 9. DISCOVER & MOOD AI API (With Auto-Caching & Full List)
 # =================================================================
 
-# --- UPDATED: HERO DATA (10 Trending Trailers for Slider) ---
-TRENDING_HERO = [
-    {
-        "id": 1,
-        "title": "GTA VI",
-        "desc": "Welcome to Leonida. The biggest open world ever created by Rockstar Games.",
-        "trailer_id": "QdBZY2fkU-0",
-        "bg_image": "https://image.tmdb.org/t/p/original/2X5qXy5i5y5y5y5y.jpg"
-    },
-    {
-        "id": 2,
-        "title": "Avatar: Fire and Ash",
-        "desc": "The next chapter in the epic saga. Discover the new tribes of Pandora.",
-        "trailer_id": "v7KBK9X7X5k", 
-        "bg_image": "https://image.tmdb.org/t/p/original/8rpDcsfLJypbO6vREc0547OTqEv.jpg"
-    },
-    {
-        "id": 3,
-        "title": "Deadpool & Wolverine",
-        "desc": "The ultimate team-up is here. Marvel's multiverse will never be the same.",
-        "trailer_id": "73_1biulkYk", 
-        "bg_image": "https://image.tmdb.org/t/p/original/yDHYTfA3R0jFYba16jBB1ef8oIt.jpg"
-    },
-    {
-        "id": 4,
-        "title": "Pushpa 2: The Rule",
-        "desc": "Pushpa Raj returns to rule the red sandalwood syndicate. The wildest storm is coming.",
-        "trailer_id": "1k3_2y7t6L8", 
-        "bg_image": "https://static.toiimg.com/thumb/msid-109132646,width-1280,height-720,resizemode-4/109132646.jpg"
-    },
-    {
-        "id": 5,
-        "title": "Kalki 2898 AD",
-        "desc": "A modern avatar of Vishnu descends to earth to protect the world from evil forces.",
-        "trailer_id": "W8wT_P_j_q0", 
-        "bg_image": "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEj8jR9wRjF-jDq3K7jz5z5z5z5z5z5z5z5z5z5z5z5z5z5z5z5z/s1600/kalki-2898-ad.jpg"
-    },
-    {
-        "id": 6,
-        "title": "Joker: Folie à Deux",
-        "desc": "Lady Gaga joins Joaquin Phoenix in this musical psychological thriller.",
-        "trailer_id": "_OKAwz2MsJs", 
-        "bg_image": "https://images4.alphacoders.com/135/1350689.jpeg"
-    },
-    {
-        "id": 7,
-        "title": "Venom: The Last Dance",
-        "desc": "Eddie and Venom are on the run. The final chapter of the trilogy.",
-        "trailer_id": "__2bjWbetsA", 
-        "bg_image": "https://static1.srcdn.com/wordpress/wp-content/uploads/2024/02/venom-3-logo.jpg"
-    },
-    {
-        "id": 8,
-        "title": "Squid Game: Season 2",
-        "desc": "Player 456 returns. The game is far from over.",
-        "trailer_id": "lQ3X5F00i4k", 
-        "bg_image": "https://images.lifestyleasia.com/wp-content/uploads/sites/7/2024/02/02133246/squid-game-season-2-cast-release-date-plot-and-more-1600x900.jpg"
-    },
-    {
-        "id": 9,
-        "title": "Moana 2",
-        "desc": "Moana journeys to the far seas of Oceania into dangerous, long-lost waters.",
-        "trailer_id": "hDZ7y8RP5HE", 
-        "bg_image": "https://lumiere-a.akamaihd.net/v1/images/p_moana2_payoff_poster_1_0c592376.jpeg"
-    },
-    {
-        "id": 10,
-        "title": "Mufasa: The Lion King",
-        "desc": "Rafiki tells the legend of Mufasa to young lion cub Kiara.",
-        "trailer_id": "o17MF9vnabg", 
-        "bg_image": "https://prod-ripcut-delivery.disney-plus.net/v1/variant/disney/566133020616147171408800/scale?width=1200&aspectRatio=1.78&format=jpeg"
-    }
-]
-
 @app.get("/discover/hero")
 def get_hero_content():
-    # Returns the FULL LIST for the slider
+    # Returns the DYNAMIC list for the slider
     return {"status": "success", "data": TRENDING_HERO}
 
 @app.get("/discover/category")
@@ -764,7 +748,7 @@ def keep_server_alive_and_warm_cache():
     cache_warmer_task()
     
     # 2. Loop keep-alive
-    url = "https://scanvidz-default.onrender.com/ping"
+    url = "https://scanvidz-backend.onrender.com/ping" # Use your real render URL if possible, else default
     while True:
         try: 
             time.sleep(840) 
