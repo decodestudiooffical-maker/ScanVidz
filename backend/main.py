@@ -239,7 +239,7 @@ def update_video_cache_background(video_id: str, info: dict, db_session_factory)
         db.close()
 
 # =================================================================
-# 🚀 5. IN-MEMORY CACHE & WARMER (THE SPEED UPDATE)
+# 🚀 5. IN-MEMORY CACHE & SAFE ENGINE (UPDATED)
 # =================================================================
 
 # Global Cache for Speed
@@ -250,11 +250,24 @@ VIDEO_MEMORY_CACHE = {
     "Animation": []
 }
 
-# 🔥 DYNAMIC HERO LIST (Backup Data - 15 Safe Trailers)
-# Keeps the site looking full even if internet is slow.
+# 🔥 SAFE CHANNELS LIST (For Embedding)
+SAFE_TRAILER_CHANNELS = [
+    "KinoCheck", 
+    "Rotten Tomatoes Trailers", 
+    "IGN Movie Trailers", 
+    "ONE Media", 
+    "FilmSelect Trailer", 
+    "Rapid Trailer", 
+    "Banshee Movie Trailers", 
+    "AniBox Trailer Access", 
+    "GameSpot Trailers", 
+    "A24"
+]
+
+# 🔥 DYNAMIC HERO LIST (Backup Data)
 TRENDING_HERO = [
     {
-        "id": 1, "title": "GTA VI", 
+        "id": 1, "title": "GTA VI - Official Trailer", 
         "desc": "Welcome to Leonida. The biggest open world ever created by Rockstar Games.", 
         "trailer_id": "QdBZY2fkU-0", "bg_image": "https://image.tmdb.org/t/p/original/2X5qXy5i5y5y5y5y.jpg"
     },
@@ -264,69 +277,9 @@ TRENDING_HERO = [
         "trailer_id": "v7KBK9X7X5k", "bg_image": "https://image.tmdb.org/t/p/original/8rpDcsfLJypbO6vREc0547OTqEv.jpg"
     },
     {
-        "id": 3, "title": "Captain America: BNW", 
-        "desc": "Sam Wilson creates a new team of Avengers.", 
-        "trailer_id": "1pHDWnXmK7Y", "bg_image": "https://images.thedirect.com/media/article_full/captain-america-4-sam-wilson-mcu.jpg"
-    },
-    {
-        "id": 4, "title": "Mufasa: The Lion King",
+        "id": 3, "title": "Mufasa: The Lion King",
         "desc": "Rafiki tells the legend of Mufasa to young lion cub Kiara.",
         "trailer_id": "o17MF9vnabg", "bg_image": "https://prod-ripcut-delivery.disney-plus.net/v1/variant/disney/566133020616147171408800/scale?width=1200&aspectRatio=1.78&format=jpeg"
-    },
-    {
-        "id": 5, "title": "Moana 2",
-        "desc": "Moana journeys to the far seas of Oceania into dangerous, long-lost waters.",
-        "trailer_id": "hDZ7y8RP5HE", "bg_image": "https://lumiere-a.akamaihd.net/v1/images/p_moana2_payoff_poster_1_0c592376.jpeg"
-    },
-    {
-        "id": 6, "title": "Deadpool & Wolverine",
-        "desc": "The ultimate team-up is here. Marvel's multiverse will never be the same.",
-        "trailer_id": "73_1biulkYk", "bg_image": "https://image.tmdb.org/t/p/original/yDHYTfA3R0jFYba16jBB1ef8oIt.jpg"
-    },
-    {
-        "id": 7, "title": "Squid Game: Season 2",
-        "desc": "Player 456 returns. The game is far from over.",
-        "trailer_id": "lQ3X5F00i4k", "bg_image": "https://images.lifestyleasia.com/wp-content/uploads/sites/7/2024/02/02133246/squid-game-season-2-cast-release-date-plot-and-more-1600x900.jpg"
-    },
-    {
-        "id": 8, "title": "Kraven the Hunter",
-        "desc": "Villains aren't born. They're made.",
-        "trailer_id": "rze8QYbLDOg", "bg_image": "https://cdn.marvel.com/content/1x/kraven_lob_crd_01.jpg"
-    },
-    {
-        "id": 9, "title": "Gladiator II",
-        "desc": "Decades after Maximus's death, a new hero rises in the Colosseum.",
-        "trailer_id": "4rgYUipGJNo", "bg_image": "https://deadline.com/wp-content/uploads/2023/11/Gladiator-2.jpg"
-    },
-    {
-        "id": 10, "title": "Mission: Impossible 8",
-        "desc": "Ethan Hunt's final mission.",
-        "trailer_id": "NOhDyUmT9z0", "bg_image": "https://images.squarespace-cdn.com/content/v1/5c76e65e4d546e02a06be31d/1635344607758-L5L3L7X5X3X5X3X5X3X5/MI7.jpg"
-    },
-    {
-        "id": 11, "title": "Superman: Legacy",
-        "desc": "A new era for the Man of Steel begins under James Gunn.",
-        "trailer_id": "v7KBK9X7X5k", "bg_image": "https://static1.srcdn.com/wordpress/wp-content/uploads/2023/06/superman-legacy-logo.jpg"
-    },
-    {
-        "id": 12, "title": "The Batman Part II",
-        "desc": "Bruce Wayne continues his fight against corruption in Gotham.",
-        "trailer_id": "mqqft2x_Aa4", "bg_image": "https://images.thedirect.com/media/article_full/the-batman-2-robert-pattinson-release.jpg"
-    },
-    {
-        "id": 13, "title": "Fantastic Four",
-        "desc": "Marvel's First Family finally comes home to the MCU.",
-        "trailer_id": "M7z_P4n3g6I", "bg_image": "https://static1.colliderimages.com/wordpress/wp-content/uploads/2024/02/fantastic-four-cast.jpg"
-    },
-    {
-        "id": 14, "title": "Blade",
-        "desc": "The daywalker returns to hunt vampires in the modern world.",
-        "trailer_id": "7TavVZMewpY", "bg_image": "https://static1.srcdn.com/wordpress/wp-content/uploads/2023/11/mahershala-ali-blade-mcu-fan-art.jpg"
-    },
-    {
-        "id": 15, "title": "Thunderbolts",
-        "desc": "A group of supervillains are recruited to go on missions for the government.",
-        "trailer_id": "l9j8jK3z1q0", "bg_image": "https://images.thedirect.com/media/article_full/thunderbolts-cast.jpg"
     }
 ]
 
@@ -346,7 +299,6 @@ def fallback_search_invidious(query, limit=20):
                 results = []
                 for item in data[:limit]:
                     if item.get('type') == 'video':
-                        # FIX: Added 'link' key here for frontend compatibility
                         results.append({
                             "title": item['title'],
                             "link": f"https://www.youtube.com/watch?v={item['videoId']}", 
@@ -363,32 +315,34 @@ def fallback_search_invidious(query, limit=20):
     
     return []
 
-# --- FIXED: PERFORM SEARCH HELPER (WITH LINK & NO CRASH) ---
+# --- FIXED: PERFORM SEARCH HELPER (STRICT FILTERING & LINKS) ---
 def perform_search_helper(query, limit=20):
     """
-    Robust Helper:
-    1. Tries Fast Search (Wrapped in try/except to prevent crash).
-    2. Falls back to YT-DLP (The Tank).
-    3. Falls back to Invidious.
-    4. CRITICAL: Adds 'link' field to every result.
+    Robust Helper with STRICT Filtering for Trailers.
     """
     cleaned = []
-    
-    # ATTEMPT 1: Fast Python Library (Wrapped to avoid 'proxies' crash)
+    # 🔥 STRICT FILTER WORDS (Rejects these instantly)
+    bad_words = ['review', 'reaction', 'analysis', 'breakdown', 'explained', 'concept', 'fan made', 'unboxing', 'gameplay']
+
+    # ATTEMPT 1: Fast Python Library
     try:
         search = VideosSearch(query, limit=limit)
         results = search.result()['result']
         for v in results:
+            # Filter Trash
+            title_lower = v['title'].lower()
+            if any(bad in title_lower for bad in bad_words): continue
+
             cleaned.append({
                 "id": v['id'],
-                "link": f"https://www.youtube.com/watch?v={v['id']}", # 🔥 FIX: Added Link
+                "link": f"https://www.youtube.com/watch?v={v['id']}", 
                 "title": v['title'],
                 "thumbnail": v['thumbnails'][0]['url'],
                 "source": v['channel']['name'],
                 "duration": v['duration'],
                 "views": v['viewCount']['short']
             })
-        return cleaned
+        if cleaned: return cleaned
     except Exception as e:
         print(f"⚠️ Primary Search Warning (Swapping to Backup): {e}")
 
@@ -397,30 +351,35 @@ def perform_search_helper(query, limit=20):
         ydl_opts = {
             'quiet': True,
             'extract_flat': True,
-            'limit': limit,
+            'limit': limit * 2, # Fetch double to filter out bad results
             'noplaylist': True,
             'ignoreerrors': True,
-            'user_agent': get_random_agent() # 🔥 Anti-Block Feature
+            'user_agent': get_random_agent() 
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
+            info = ydl.extract_info(f"ytsearch{limit * 2}:{query}", download=False)
             if 'entries' in info:
                 for v in info['entries']:
                     if v:
                         vid_id = v.get('id')
-                        # Filter Shorts (>60s only)
+                        # Strict Filter inside YT-DLP
+                        title_lower = v.get('title', '').lower()
+                        if any(bad in title_lower for bad in bad_words): continue
+                        
+                        # Filter Shorts (<60s)
                         dur = v.get('duration', 0)
                         if dur and dur < 60: continue
 
                         cleaned.append({
                             "id": vid_id,
-                            "link": f"https://www.youtube.com/watch?v={vid_id}", # 🔥 FIX: Added Link
+                            "link": f"https://www.youtube.com/watch?v={vid_id}",
                             "title": v.get('title'),
-                            "thumbnail": v.get('thumbnail') or f"https://i.ytimg.com/vi/{vid_id}/maxresdefault.jpg", # 🔥 High Res Force
+                            "thumbnail": v.get('thumbnail') or f"https://i.ytimg.com/vi/{vid_id}/maxresdefault.jpg",
                             "source": v.get('uploader'),
                             "duration": v.get('duration_string') or "HD",
                             "views": format_views(v.get('view_count', 0))
                         })
+                        if len(cleaned) >= limit: break
         if cleaned: return cleaned
     except Exception as e:
         print(f"❌ Backup Search Failed: {e}")
@@ -430,36 +389,51 @@ def perform_search_helper(query, limit=20):
 
 def refresh_hero_trailers():
     """
-    🔥 SMART LOGIC:
-    1. Searches for 'KinoCheck' (Safe Channel)
-    2. Updates Global Hero List
+    🔥 THE BRAIN: Uses SAFE CHANNELS to find 2025-2026 Trailers.
+    Updates every time server restarts (simulates weekly update).
     """
     global TRENDING_HERO
-    print("🎬 Searching for New 2025-2026 Trailers...")
+    print("🎬 Smart Fetch: Searching SAFE Aggregators for 2025 Trailers...")
     
     try:
-        # We search KinoCheck because they don't block embeds
-        results = perform_search_helper("KinoCheck International Trailer 2025 2026", limit=20)
+        all_trailers = []
+        # 1. Pick 2 Random Safe Channels to keep content fresh
+        selected_channels = random.sample(SAFE_TRAILER_CHANNELS, 2)
         
+        for channel in selected_channels:
+            print(f"🔍 Scanning Channel: {channel}...")
+            # Search Query Pattern: "KinoCheck Official Trailer 2025"
+            query = f"{channel} Official Trailer 2025 2026"
+            results = perform_search_helper(query, limit=8)
+            all_trailers.extend(results)
+
+        # 2. Process Results
         new_hero_list = []
-        for i, v in enumerate(results):
-            if 'trailer' in v['title'].lower():
-                # Clean Title Logic
-                clean_title = v['title'].split('|')[0].replace("Trailer", "").replace("(2025)", "").strip()
-                new_hero_list.append({
-                    "id": i + 1,
-                    "title": clean_title if clean_title else v['title'],
-                    "desc": f"Watch the official trailer for {clean_title} - Streaming on ScanVidz.",
-                    "trailer_id": v['id'],
-                    "bg_image": v['thumbnail']
-                })
+        seen_ids = set()
+
+        for v in all_trailers:
+            if v['id'] in seen_ids: continue
+            seen_ids.add(v['id'])
+            
+            # Clean Title Logic (Removes "Official Trailer" junk)
+            clean_title = v['title'].split('|')[0].replace("Official Trailer", "").replace("(2025)", "").replace("4K", "").strip()
+            
+            new_hero_list.append({
+                "id": len(new_hero_list) + 1,
+                "title": clean_title if len(clean_title) > 2 else v['title'],
+                "desc": f"Watch the official trailer for {clean_title}. High Quality stream via ScanVidz.",
+                "trailer_id": v['id'],
+                "bg_image": v['thumbnail']
+            })
         
         # Only update if we found enough good trailers
-        if len(new_hero_list) >= 5:
+        if len(new_hero_list) >= 10:  # Updated to 10 as requested
+            # Shuffle to mix up the two channels
+            random.shuffle(new_hero_list)
             TRENDING_HERO = new_hero_list[:15] 
-            print(f"✅ Hero Section Updated with {len(TRENDING_HERO)} Fresh Trailers!")
+            print(f"✅ Hero Updated with {len(TRENDING_HERO)} Fresh Safe Trailers!")
         else:
-            print("⚠️ Not enough new trailers found. Keeping Safe Fallback List.")
+            print("⚠️ Not enough safe trailers found. Keeping Safe Fallback List.")
             
     except Exception as e:
         print(f"❌ Failed to refresh hero trailers: {e}")
