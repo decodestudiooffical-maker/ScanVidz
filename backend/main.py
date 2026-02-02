@@ -315,20 +315,28 @@ def fallback_search_invidious(query, limit=20):
     
     return []
 
-# --- FIXED: PERFORM SEARCH HELPER (STRICT FILTERING & LINKS) ---
-def perform_search_helper(query, limit=20):
+# --- FIXED: PERFORM SEARCH HELPER (STRICT FILTERING & LINKS & PAGINATION) ---
+def perform_search_helper(query, limit=20, page=1):
     """
-    Robust Helper with STRICT Filtering for Trailers.
+    Robust Helper with STRICT Filtering, Pagination, and Safer Thumbnails.
     """
     cleaned = []
     # 🔥 STRICT FILTER WORDS (Rejects these instantly)
     bad_words = ['review', 'reaction', 'analysis', 'breakdown', 'explained', 'concept', 'fan made', 'unboxing', 'gameplay']
 
+    # Calculate fetch size based on page number to simulate pagination
+    fetch_size = limit * page
+
     # ATTEMPT 1: Fast Python Library
     try:
-        search = VideosSearch(query, limit=limit)
+        search = VideosSearch(query, limit=fetch_size)
         results = search.result()['result']
-        for v in results:
+        
+        # SLICE RESULTS FOR PAGINATION: Get only the current page's slice
+        start_index = (page - 1) * limit
+        paginated_results = results[start_index : start_index + limit]
+
+        for v in paginated_results:
             # Filter Trash
             title_lower = v['title'].lower()
             if any(bad in title_lower for bad in bad_words): continue
@@ -351,15 +359,20 @@ def perform_search_helper(query, limit=20):
         ydl_opts = {
             'quiet': True,
             'extract_flat': True,
-            'limit': limit * 2, # Fetch double to filter out bad results
+            'limit': fetch_size, # Fetch enough to cover up to current page
             'noplaylist': True,
             'ignoreerrors': True,
             'user_agent': get_random_agent() 
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{limit * 2}:{query}", download=False)
+            info = ydl.extract_info(f"ytsearch{fetch_size}:{query}", download=False)
             if 'entries' in info:
-                for v in info['entries']:
+                entries = info['entries']
+                # SLICE RESULTS FOR PAGINATION
+                start_index = (page - 1) * limit
+                paginated_entries = entries[start_index : start_index + limit]
+
+                for v in paginated_entries:
                     if v:
                         vid_id = v.get('id')
                         # Strict Filter inside YT-DLP
@@ -370,21 +383,24 @@ def perform_search_helper(query, limit=20):
                         dur = v.get('duration', 0)
                         if dur and dur < 60: continue
 
+                        # 🔥 THUMBNAIL FIX: Use 'hqdefault' as it's guaranteed to exist
+                        thumb_url = v.get('thumbnail') or f"https://i.ytimg.com/vi/{vid_id}/hqdefault.jpg"
+
                         cleaned.append({
                             "id": vid_id,
                             "link": f"https://www.youtube.com/watch?v={vid_id}",
                             "title": v.get('title'),
-                            "thumbnail": v.get('thumbnail') or f"https://i.ytimg.com/vi/{vid_id}/maxresdefault.jpg",
+                            "thumbnail": thumb_url,
                             "source": v.get('uploader'),
                             "duration": v.get('duration_string') or "HD",
                             "views": format_views(v.get('view_count', 0))
                         })
-                        if len(cleaned) >= limit: break
+                        
         if cleaned: return cleaned
     except Exception as e:
         print(f"❌ Backup Search Failed: {e}")
         
-    # ATTEMPT 3: Invidious Fallback
+    # ATTEMPT 3: Invidious Fallback (Simple fallback, no pagination logic yet)
     return fallback_search_invidious(query, limit)
 
 def refresh_hero_trailers():
@@ -574,19 +590,18 @@ def get_hero_content():
     )
 
 @app.get("/discover/category")
-def get_category_videos(tag: str = "Goldmines"):
+def get_category_videos(tag: str = "Goldmines", page: int = 1):
     """
-    ULTRA-FAST API: Returns data from RAM Cache instantly.
-    Only searches live if cache is empty.
+    ULTRA-FAST API with Pagination Support.
     """
-    # 1. Check Memory Cache First
-    if tag in VIDEO_MEMORY_CACHE and len(VIDEO_MEMORY_CACHE[tag]) > 0:
+    # 1. Check Memory Cache First (Only for Page 1)
+    if page == 1 and tag in VIDEO_MEMORY_CACHE and len(VIDEO_MEMORY_CACHE[tag]) > 0:
         data = VIDEO_MEMORY_CACHE[tag].copy()
-        random.shuffle(data) # Shuffle for variety
+        random.shuffle(data) 
         return {"status": "success", "videos": data}
 
-    # 2. Fallback: Live Search (Only if cache failed)
-    print(f"⚠️ Cache Miss for {tag}. Doing live search...")
+    # 2. Live Search (Page 2+ or Cache Miss)
+    # print(f"⚠️ Cache Miss or Next Page for {tag}. Page: {page}")
     search_query = ""
     if tag == 'Goldmines': search_query = "Goldmines Telefilms full movie 2024"
     elif tag == 'Horror': search_query = "Official Horror full movie hindi"
@@ -594,10 +609,11 @@ def get_category_videos(tag: str = "Goldmines"):
     elif tag == 'Animation': search_query = "Blender Foundation short film"
     else: search_query = f"{tag} full movie legal"
 
-    results = perform_search_helper(search_query)
+    # Fetch fresh results for the specific page
+    results = perform_search_helper(search_query, limit=25, page=page)
     
-    # Update cache for next time
-    if results:
+    # Update cache for next time (Only if Page 1)
+    if page == 1 and results:
         VIDEO_MEMORY_CACHE[tag] = results
 
     return {"status": "success", "videos": results}
@@ -627,25 +643,19 @@ def mood_ai(data: dict = Body(...)):
 def calculate_hybrid_score(video, user_interests):
     """
     Calculates a 'Desire Score' for a video based on Advanced Rules.
-    Higher Score = Better Recommendation.
     """
     score = 0
     title_lower = video.get('title', '').lower()
     
-    # Rule 1 & 2: Rabbit Hole (Tag Matching)
-    # If video title contains words from user's interests -> +50 Points
     if any(tag in title_lower for tag in user_interests):
         score += 50
         
-    # Rule 17: Viral/Trending (Based on View Count 'M' or 'K')
     views = video.get('views', '0')
     if 'M' in views: 
-        score += 20  # Mega Viral (+20)
+        score += 20  
     elif 'K' in views: 
-        score += 5   # Trending (+5)
+        score += 5   
     
-    # Rule 10: Freshness (Simulated)
-    # Giving random boost to mimic "Fresh Content" logic
     score += random.randint(1, 10) 
     
     return score
@@ -660,7 +670,7 @@ def search_videos(q: str = Query(None), limit: int = 40, page: int = 1, filter: 
         elif filter == "Gaming": search_term += " gameplay"
     
     # Using the robust helper that ensures 'link' is present
-    results = perform_search_helper(search_term, limit=limit)
+    results = perform_search_helper(search_term, limit=limit, page=page)
     return {"status": "success", "results": results, "page": page}
 
 @app.get("/meta")
@@ -725,8 +735,6 @@ def get_recommendations(user_id: str = None, db: Session = Depends(get_db)):
                 user_interests.extend(words)
     
     # 2. Fetch Candidates (Trending + Interest Mix)
-    # Using the robust helper which now uses KinoCheck logic internally via search term if general trending fails
-    # But here we search generic 'trending'
     candidates = perform_search_helper("trending movies 2025", limit=15)
 
     # B. Fetch Interest Based (The Rabbit Hole)

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import YouTube from 'react-youtube'; 
 import UserMenu from '@/components/UserMenu'; 
@@ -8,21 +8,28 @@ import UserMenu from '@/components/UserMenu';
 // Port Check: Ensure Backend is running on 8000
 const API_BASE_URL = "https://scanvidz-backend.onrender.com"; 
 
-// --- FALLBACK DATA ---
+// --- FALLBACK DATA (Safe List - Always Works) ---
 const FALLBACK_HERO = [
   { 
     id: 1, 
+    title: "GTA VI - Official Trailer", 
+    desc: "Welcome to Leonida. The biggest open world ever created.", 
+    trailer_id: "QdBZY2fkU-0", 
+    bg_image: "https://image.tmdb.org/t/p/original/2X5qXy5i5y5y5y5y.jpg" 
+  },
+  { 
+    id: 2, 
     title: "Avatar: Fire and Ash", 
     desc: "The next chapter in the epic saga. Discover the new tribes of Pandora.", 
     trailer_id: "v7KBK9X7X5k", 
     bg_image: "https://image.tmdb.org/t/p/original/8rpDcsfLJypbO6vREc0547OTqEv.jpg" 
   },
   { 
-    id: 2, 
-    title: "GTA VI", 
-    desc: "Welcome to Leonida. The biggest open world ever created.", 
-    trailer_id: "QdBZY2fkU-0", 
-    bg_image: "https://image.tmdb.org/t/p/original/2X5qXy5i5y5y5y5y.jpg" 
+    id: 3, 
+    title: "Mufasa: The Lion King", 
+    desc: "Rafiki tells the legend of Mufasa to young lion cub Kiara.", 
+    trailer_id: "o17MF9vnabg", 
+    bg_image: "https://prod-ripcut-delivery.disney-plus.net/v1/variant/disney/566133020616147171408800/scale?width=1200&aspectRatio=1.78&format=jpeg" 
   }
 ];
 
@@ -47,18 +54,26 @@ export default function DiscoverPage() {
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [isPlayingHero, setIsPlayingHero] = useState(true); 
   const [player, setPlayer] = useState<any>(null);
+  
+  // --- PAGINATION STATES (NEW) ---
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  // --- 1. LOAD HERO DATA ---
+  // --- 1. LOAD HERO DATA (With Error Handling) ---
   useEffect(() => {
-    fetch(`${API_BASE_URL}/discover/hero`)
+    fetch(`${API_BASE_URL}/discover/hero`, { cache: 'no-store' }) 
       .then(res => res.json())
       .then(data => {
-         if(data.status === 'success' && Array.isArray(data.data)) {
+         if(data.status === 'success' && Array.isArray(data.data) && data.data.length > 0) {
              setHeroList(data.data);
+         } else {
+             setHeroList(FALLBACK_HERO);
          }
       })
       .catch(err => {
           console.log("Backend Offline - Using Fallback");
+          setHeroList(FALLBACK_HERO);
       });
   }, []);
 
@@ -68,7 +83,7 @@ export default function DiscoverPage() {
     
     const interval = setInterval(() => {
         nextSlide();
-    }, 60000); // 60 Seconds per slide
+    }, 60000); // 1 Minute per slide
 
     return () => clearInterval(interval);
   }, [heroList, currentSlide]); 
@@ -84,35 +99,61 @@ export default function DiscoverPage() {
       setIsPlayingHero(true);
   };
 
+  // --- DATA FETCHING (UPDATED FOR PAGINATION) ---
+  const fetchCategoryData = async (catTag: string, pageNum: number, isLoadMore: boolean = false) => {
+      if (isLoadMore) setLoadingMore(true);
+      else setIsLoading(true);
+
+      try {
+          const res = await fetch(`${API_BASE_URL}/discover/category?tag=${catTag}&page=${pageNum}`, { cache: 'no-store' });
+          const data = await res.json();
+          
+          if(data.status === 'success' && data.videos.length > 0) {
+              if (isLoadMore) {
+                  setMoviesList(prev => [...prev, ...data.videos]); // Append new videos
+              } else {
+                  setMoviesList(data.videos); // Reset list
+              }
+              setHasMore(true);
+          } else {
+              if (!isLoadMore) setMoviesList([]); 
+              setHasMore(false); // No more data
+          }
+      } catch (e) { 
+          console.error("API Error:", e);
+      } finally {
+          setIsLoading(false);
+          setLoadingMore(false);
+      }
+  };
+
   // --- HANDLERS ---
-  const handleCategoryClick = async (cat: any) => {
+  const handleCategoryClick = (cat: any) => {
     setActiveCategory(cat);
-    setIsLoading(true);
+    setPage(1); // Reset page to 1
     setMoviesList([]); 
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    fetchCategoryData(cat.sourceTag, 1, false);
+  };
 
-    try {
-        const res = await fetch(`${API_BASE_URL}/discover/category?tag=${cat.sourceTag}`);
-        const data = await res.json();
-        if(data.status === 'success') {
-            setMoviesList(data.videos);
-        } else {
-            setMoviesList([]); 
-        }
-    } catch (e) { 
-        console.error("API Error:", e);
-    }
-    setIsLoading(false);
+  const handleLoadMore = () => {
+      if (!activeCategory) return;
+      const nextPage = page + 1;
+      setPage(nextPage);
+      fetchCategoryData(activeCategory.sourceTag, nextPage, true);
   };
 
   const handleBackToHome = () => {
     setActiveCategory(null);
+    setMoviesList([]);
+    setPage(1);
   };
 
   const handleMoodSubmit = async () => {
       if(!mood.trim()) return;
       setIsLoading(true);
       setActiveCategory({ label: `AI Picks: ${mood}`, sourceTag: 'AI' }); 
+      setPage(1);
       
       try {
           const res = await fetch(`${API_BASE_URL}/discover/mood`, {
@@ -130,6 +171,7 @@ export default function DiscoverPage() {
                   views: v.viewCount ? v.viewCount.short : "N/A"
               }));
               setMoviesList(aiMovies);
+              setHasMore(false); // AI search usually doesn't have simple pagination yet
           }
       } catch(e) {
         console.log("AI Error", e);
@@ -147,73 +189,54 @@ export default function DiscoverPage() {
     if(searchQuery.trim()) router.push(`/search?q=${encodeURIComponent(searchQuery)}`);
   };
 
-  // --- SMART PLAYER EVENTS (FADE IN LOGIC) ---
-  
-  // 1. Ready Handler
+  // --- SMART PLAYER EVENTS ---
   const onPlayerReady = (event: any) => {
       setPlayer(event.target);
       const p = event.target;
-
       try {
-          // Step 1: Start Muted (Requirement for Autoplay)
           p.mute(); 
           p.playVideo();
-
-          // Step 2: Wait 2.5 Seconds, then Fade In Audio
+          // Fade In Audio Logic
           setTimeout(() => {
               try {
-                  p.unMute();        // Unmute
-                  p.setVolume(0);    // Start at 0 volume
-                  
-                  // Fade In Loop: Increase volume by 5 every 100ms
+                  p.unMute();        
+                  p.setVolume(0);    
                   let vol = 0;
                   const fadeInterval = setInterval(() => {
-                      if (vol >= 100) {
-                          clearInterval(fadeInterval); // Stop when max volume
-                      } else {
-                          vol += 5;
-                          p.setVolume(vol);
-                      }
-                  }, 100); 
-
-              } catch(err) {
-                  // If browser blocks unmute (no interaction yet), keep playing muted
-                  console.log("Audio autoplay blocked, playing muted.");
-              }
-          }, 2500); // 2.5 Second Delay
-
+                      if (vol >= 100) clearInterval(fadeInterval);
+                      else { vol += 10; p.setVolume(vol); }
+                  }, 200); 
+              } catch(err) {}
+          }, 3000); 
       } catch(e) {}
   };
 
-  // 2. Error Handler
   const onPlayerError = (event: any) => {
-      console.log("Video Error Code:", event.data);
-      // Wait 5 seconds on error before skipping
-      setTimeout(() => {
+      // Error 150/101 = Restricted
+      if ([100, 101, 150].includes(event.data)) {
+          // Swap broken video with GTA VI
+          const newHeroList = [...heroList];
+          newHeroList[currentSlide] = FALLBACK_HERO[0]; 
+          setHeroList(newHeroList);
+          setIsPlayingHero(false);
+          setTimeout(() => setIsPlayingHero(true), 100);
+      } else {
           nextSlide();
-      }, 5000); 
+      }
   };
 
-  // 3. End Handler
   const onPlayerEnd = (event: any) => {
       nextSlide();
   };
 
-  // YouTube Options
   const heroOpts = {
       height: '100%',
       width: '100%',
       playerVars: {
-          autoplay: 1,
-          controls: 0,
-          rel: 0,
-          showinfo: 0,
-          mute: 1,   // Start Muted (Code handles unmute)
-          start: 0,
-          end: 60,   
-          modestbranding: 1,
-          origin: typeof window !== 'undefined' ? window.location.origin : undefined,
-          iv_load_policy: 3
+          autoplay: 1, controls: 0, rel: 0, showinfo: 0, mute: 1,   
+          start: 0, end: 60, modestbranding: 1,
+          origin: typeof window !== 'undefined' ? window.location.origin : 'https://www.youtube.com',
+          host: 'https://www.youtube.com', iv_load_policy: 3
       },
   };
 
@@ -229,13 +252,7 @@ export default function DiscoverPage() {
           </div>
 
           <form onSubmit={handleSearch} className="hidden md:flex flex-1 max-w-lg mx-auto items-center bg-[#121212] border border-gray-700 rounded-full px-4 py-2 focus-within:border-blue-500 transition-colors">
-             <input 
-               type="text" 
-               placeholder="Search movies, anime..." 
-               className="bg-transparent flex-1 outline-none text-white placeholder-gray-500 text-sm" 
-               value={searchQuery}
-               onChange={(e) => setSearchQuery(e.target.value)}
-             />
+             <input type="text" placeholder="Search movies, anime..." className="bg-transparent flex-1 outline-none text-white placeholder-gray-500 text-sm" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
              <button type="submit" className="text-gray-400 hover:text-white">🔍</button>
           </form>
 
@@ -249,14 +266,7 @@ export default function DiscoverPage() {
       {isMobileSearchOpen && (
           <div className="md:hidden bg-[#111] p-3 border-b border-gray-800 animate-in slide-in-from-top-2">
              <form onSubmit={handleSearch} className="flex items-center bg-[#222] rounded-lg px-3 py-2">
-                 <input 
-                   type="text" 
-                   placeholder="Search..." 
-                   className="flex-1 bg-transparent outline-none text-white text-sm"
-                   value={searchQuery}
-                   onChange={(e) => setSearchQuery(e.target.value)}
-                   autoFocus
-                 />
+                 <input type="text" placeholder="Search..." className="flex-1 bg-transparent outline-none text-white text-sm" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} autoFocus />
                  <button type="submit">🔍</button>
              </form>
           </div>
@@ -284,22 +294,10 @@ export default function DiscoverPage() {
 
         {/* BOTTOM NAV */}
         <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-[#050505]/95 backdrop-blur-lg border-t border-gray-800 flex justify-around items-center p-2 z-[60] pb-safe-area">
-            <button onClick={() => router.push('/')} className="flex flex-col items-center p-2 text-gray-400 hover:text-white">
-                <span className="text-xl">🏠</span>
-                <span className="text-[10px] mt-1">Home</span>
-            </button>
-            <button onClick={() => setActiveCategory(null)} className={`flex flex-col items-center p-2 ${!activeCategory ? 'text-blue-500' : 'text-gray-400'}`}>
-                <span className="text-xl">🧭</span>
-                <span className="text-[10px] mt-1">Discover</span>
-            </button>
-            <button onClick={() => router.push('/best-content')} className="flex flex-col items-center p-2 text-gray-400 hover:text-white">
-                <span className="text-xl">💎</span>
-                <span className="text-[10px] mt-1">Best</span>
-            </button>
-            <button onClick={() => router.push('/history')} className="flex flex-col items-center p-2 text-gray-400 hover:text-white">
-                <span className="text-xl">📜</span>
-                <span className="text-[10px] mt-1">History</span>
-            </button>
+            <button onClick={() => router.push('/')} className="flex flex-col items-center p-2 text-gray-400 hover:text-white"><span className="text-xl">🏠</span><span className="text-[10px] mt-1">Home</span></button>
+            <button onClick={() => setActiveCategory(null)} className={`flex flex-col items-center p-2 ${!activeCategory ? 'text-blue-500' : 'text-gray-400'}`}><span className="text-xl">🧭</span><span className="text-[10px] mt-1">Discover</span></button>
+            <button onClick={() => router.push('/best-content')} className="flex flex-col items-center p-2 text-gray-400 hover:text-white"><span className="text-xl">💎</span><span className="text-[10px] mt-1">Best</span></button>
+            <button onClick={() => router.push('/history')} className="flex flex-col items-center p-2 text-gray-400 hover:text-white"><span className="text-xl">📜</span><span className="text-[10px] mt-1">History</span></button>
         </div>
 
         {/* MAIN CONTENT */}
@@ -310,55 +308,33 @@ export default function DiscoverPage() {
                   
                   {/* HERO CAROUSEL SECTION */}
                   <div className="relative w-full h-[55vh] md:h-[70vh] rounded-2xl md:rounded-3xl overflow-hidden mb-8 md:mb-12 group border border-white/5 shadow-2xl bg-black">
-                      
-                      {/* Background: Video Only Plays if Active */}
                       <div className="absolute inset-0 bg-black">
                          {heroList.map((item, index) => (
-                             <div 
-                                key={item.id} 
-                                className={`absolute inset-0 transition-opacity duration-1000 ${index === currentSlide ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}
-                             >
-                                 {/* Only Render YouTube for the active slide to save memory */}
+                             <div key={item.id} className={`absolute inset-0 transition-opacity duration-1000 ${index === currentSlide ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
                                  {index === currentSlide && isPlayingHero ? (
                                       <div className="w-full h-full scale-[1.35]">
-                                          <YouTube 
-                                            videoId={item.trailer_id} 
-                                            opts={heroOpts} 
-                                            className="w-full h-full"
-                                            onReady={onPlayerReady}
-                                            onError={onPlayerError} 
-                                            onEnd={onPlayerEnd}
-                                          />
+                                          <YouTube videoId={item.trailer_id} opts={heroOpts} className="w-full h-full" onReady={onPlayerReady} onError={onPlayerError} onEnd={onPlayerEnd} />
                                       </div>
                                  ) : (
                                       <div className="w-full h-full bg-cover bg-center" style={{backgroundImage: `url(${item.bg_image})`}}></div>
                                  )}
-                                 
                                  <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/40 to-transparent"></div>
                                  <div className="absolute inset-0 bg-gradient-to-r from-[#050505]/80 via-transparent to-transparent"></div>
                              </div>
                          ))}
                       </div>
 
-                      {/* Content Overlay */}
+                      {/* Content Overlay - NO WATCHLIST BUTTON */}
                       <div className="absolute bottom-0 left-0 p-6 md:p-12 w-full md:max-w-3xl z-30 pointer-events-none">
                           <div key={currentSlide} className="animate-in slide-in-from-left-5 duration-700 pointer-events-auto">
-                              <span className="bg-red-600 text-[10px] md:text-xs font-bold px-2 py-1 md:px-3 rounded uppercase tracking-widest mb-2 md:mb-4 inline-block shadow-lg">
-                                  #{currentSlide + 1} Trending Now
-                              </span>
-                              <h1 className="text-3xl md:text-6xl font-black mb-2 md:mb-4 drop-shadow-2xl leading-tight tracking-tight">
-                                  {currentHero.title}
-                              </h1>
-                              <p className="text-gray-200 text-sm md:text-lg mb-6 line-clamp-2 md:line-clamp-3 drop-shadow-lg font-light">
-                                  {currentHero.desc}
-                              </p>
+                              <span className="bg-red-600 text-[10px] md:text-xs font-bold px-2 py-1 md:px-3 rounded uppercase tracking-widest mb-2 md:mb-4 inline-block shadow-lg">#{currentSlide + 1} Trending Now</span>
+                              <h1 className="text-3xl md:text-6xl font-black mb-2 md:mb-4 drop-shadow-2xl leading-tight tracking-tight">{currentHero.title}</h1>
+                              <p className="text-gray-200 text-sm md:text-lg mb-6 line-clamp-2 md:line-clamp-3 drop-shadow-lg font-light">{currentHero.desc}</p>
                               <div className="flex gap-4">
                                   <button onClick={() => handlePlay(currentHero.trailer_id)} className="bg-white text-black px-8 py-3 rounded-full font-bold hover:scale-105 transition flex items-center gap-2 text-sm md:text-base shadow-lg hover:shadow-white/20">
                                      <span>▷</span> Watch Trailer
                                   </button>
-                                  <button onClick={() => alert("Added to Watchlist")} className="bg-white/10 backdrop-blur border border-white/20 text-white px-4 py-3 rounded-full font-bold hover:bg-white/20 transition text-sm">
-                                     + Watchlist
-                                  </button>
+                                  {/* 🔥 WATCHLIST BUTTON REMOVED AS REQUESTED */}
                               </div>
                           </div>
                       </div>
@@ -367,7 +343,6 @@ export default function DiscoverPage() {
                       <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 bg-black/30 hover:bg-black/60 text-white p-3 rounded-full backdrop-blur border border-white/10 transition hover:scale-110 hidden md:block">❮</button>
                       <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 bg-black/30 hover:bg-black/60 text-white p-3 rounded-full backdrop-blur border border-white/10 transition hover:scale-110 hidden md:block">❯</button>
 
-                      {/* Carousel Indicators */}
                       <div className="absolute bottom-6 right-6 z-40 flex gap-2">
                           {heroList.map((_, idx) => (
                               <div key={idx} onClick={() => { setCurrentSlide(idx); setIsPlayingHero(true); }} className={`h-1.5 rounded-full cursor-pointer transition-all duration-300 ${idx === currentSlide ? 'w-8 bg-blue-500' : 'w-2 bg-gray-600 hover:bg-gray-400'}`}></div>
@@ -375,7 +350,7 @@ export default function DiscoverPage() {
                       </div>
                   </div>
 
-                  {/* Mood AI */}
+                  {/* Mood AI & Categories */}
                   <div className="mb-8 md:mb-12 bg-[#111] border border-white/10 rounded-2xl p-5 md:p-8 flex flex-col md:flex-row items-center gap-4 md:gap-6">
                       <div className="text-center md:text-left w-full md:w-auto">
                           <h2 className="text-xl md:text-2xl font-bold mb-1">🤖 AI Stylist</h2>
@@ -383,13 +358,10 @@ export default function DiscoverPage() {
                       </div>
                       <div className="flex-1 w-full flex gap-2">
                           <input type="text" placeholder="e.g. I want to cry..." className="w-full bg-black/50 border border-gray-600 rounded-xl px-4 py-3 outline-none focus:border-blue-500 transition text-white text-sm" value={mood} onChange={(e) => setMood(e.target.value)} />
-                          <button onClick={handleMoodSubmit} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 rounded-xl font-bold whitespace-nowrap text-sm">
-                              {isLoading ? "Thinking..." : "Ask AI"}
-                          </button>
+                          <button onClick={handleMoodSubmit} className="bg-blue-600 hover:bg-blue-500 px-4 md:px-6 rounded-xl font-bold whitespace-nowrap text-sm">{isLoading ? "Thinking..." : "Ask AI"}</button>
                       </div>
                   </div>
 
-                  {/* Categories */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
                       {CATEGORIES.map((cat) => (
                           <div key={cat.id} onClick={() => handleCategoryClick(cat)} className="group cursor-pointer bg-[#111] rounded-xl md:rounded-2xl overflow-hidden border border-white/5 hover:border-blue-500/50 hover:shadow-lg transition-all duration-300 flex sm:block items-center sm:items-start">
@@ -417,14 +389,21 @@ export default function DiscoverPage() {
                       </div>
                   </div>
 
-                  {isLoading ? (
+                  {isLoading && page === 1 ? (
                       <div className="text-center py-20 text-gray-500 animate-pulse">Fetching best content for you...</div>
                   ) : (
+                      <>
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-6">
                           {moviesList.length > 0 ? moviesList.map((movie:any, idx) => (
-                              <div key={idx} onClick={() => handlePlay(movie.id)} className="group cursor-pointer relative bg-[#111] rounded-lg md:rounded-xl overflow-hidden border border-white/5 hover:border-gray-500 transition-all hover:-translate-y-1 hover:shadow-xl">
-                                  <div className="relative aspect-[16/9]">
-                                      <img src={movie.thumbnail || "https://via.placeholder.com/320x180"} className="w-full h-full object-cover" loading="lazy" />
+                              <div key={`${movie.id}-${idx}`} onClick={() => handlePlay(movie.id)} className="group cursor-pointer relative bg-[#111] rounded-lg md:rounded-xl overflow-hidden border border-white/5 hover:border-gray-500 transition-all hover:-translate-y-1 hover:shadow-xl">
+                                  <div className="relative aspect-[16/9] bg-gray-900">
+                                      {/* 🔥 THUMBNAIL FIX: Added fallback to hqdefault */}
+                                      <img 
+                                        src={movie.thumbnail || `https://i.ytimg.com/vi/${movie.id}/hqdefault.jpg`} 
+                                        className="w-full h-full object-cover" 
+                                        loading="lazy" 
+                                        onError={(e:any) => e.target.src=`https://i.ytimg.com/vi/${movie.id}/hqdefault.jpg`}
+                                      />
                                       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition bg-black/40">
                                           <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center shadow-lg">▶</div>
                                       </div>
@@ -438,6 +417,25 @@ export default function DiscoverPage() {
                             <div className="col-span-full text-center text-gray-500">No videos found. Backend might be searching...</div>
                           )}
                       </div>
+
+                      {/* 🔥 LOAD MORE BUTTON */}
+                      {moviesList.length > 0 && hasMore && (
+                          <div className="flex justify-center mt-12 mb-8">
+                              <button 
+                                onClick={handleLoadMore} 
+                                disabled={loadingMore}
+                                className="bg-[#222] hover:bg-[#333] border border-white/10 text-white px-8 py-3 rounded-full font-bold transition disabled:opacity-50 flex items-center gap-2"
+                              >
+                                {loadingMore ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        Loading more...
+                                    </>
+                                ) : "Load More Videos"}
+                              </button>
+                          </div>
+                      )}
+                      </>
                   )}
               </div>
             )}
