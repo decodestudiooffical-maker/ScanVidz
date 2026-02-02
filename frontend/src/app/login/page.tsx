@@ -26,7 +26,7 @@ export default function LoginPage() {
 
     // API Call
     try {
-        const res = await fetch('https://scanvidz-default.onrender.com/login', {
+        const res = await fetch('https://https://scanvidz-backend.onrender.com/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

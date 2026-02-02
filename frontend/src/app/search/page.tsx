@@ -55,7 +55,7 @@ function SearchContent() {
     const timer = setTimeout(() => {
         if (query.length > 1 && showSuggestions) {
             // 🔥 UPDATE: Naya Link Yahan Hai
-            fetch(`https://scanvidz-backend.onrender.com/suggestions?q=${encodeURIComponent(query)}`)
+            fetch(`https://https://scanvidz-backend.onrender.com/suggestions?q=${encodeURIComponent(query)}`)
                 .then(res => res.json())
                 .then(data => setSuggestions(data))
                 .catch(err => console.error(err));
@@ -89,7 +89,7 @@ function SearchContent() {
 
     const limit = 40; 
     // 🔥 UPDATE: Naya Link Yahan Bhi Hai
-    let apiUrl = `https://scanvidz-backend.onrender.com/search?q=${encodeURIComponent(searchQuery)}&limit=${limit}&page=${pageNum}`;
+    let apiUrl = `https://https://scanvidz-backend.onrender.com/search?q=${encodeURIComponent(searchQuery)}&limit=${limit}&page=${pageNum}`;
     
     if (currentFilter && currentFilter !== "All") {
         apiUrl += `&filter=${encodeURIComponent(currentFilter)}`;

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import UserMenu from '@/components/UserMenu'; 
 
 // 🔥 UPDATED BACKEND URL
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "https://scanvidz-backend.onrender.com";
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
