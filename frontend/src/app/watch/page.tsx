@@ -341,32 +341,42 @@ function WatchContent() {
       }
   }, [videoId, user]);
 
-  // 🔥 ENHANCED RECOMMENDATION LOGIC (Populates 'Up Next')
+  // 🔥 FINAL FIX: GUARANTEED RECOMMENDATIONS
   useEffect(() => {
-      if (!title || title === 'Video Player') return;
+      // Logic: If title exists, search for it. If result is empty or error, fallback to Trending.
+      const fetchUpNext = async () => {
+          let foundVideos = [];
+          
+          if (title && title !== 'Video Player') {
+              try {
+                  // Try to find specific related videos
+                  const cleanTitle = title.replace(/[^a-zA-Z0-9 ]/g, "").split(' ').slice(0, 3).join(' '); // Search first 3 words
+                  const res = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(cleanTitle)}&limit=15`);
+                  const data = await res.json();
+                  if (data.results && data.results.length > 0) {
+                      foundVideos = data.results;
+                  }
+              } catch (e) { console.error(e); }
+          }
 
-      const fetchRecommendations = async () => {
-          try {
-              // 1. Try Specific Search (Title Based)
-              let mainTag = title.split(' ').slice(0, 4).join(' ');
-              let res = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(mainTag)}&limit=15`);
-              let data = await res.json();
-              
-              if (data.results && data.results.length > 0) {
-                  setRelated(data.results);
-              } else {
-                  // 2. Fallback to Trending (If no specific results found)
-                  console.log("⚠️ No specific related videos found. Fetching Trending Backup...");
-                  res = await fetch(`${API_BASE_URL}/trending`);
-                  data = await res.json();
-                  if (data.videos) setRelated(data.videos);
-              }
-          } catch (e) {
-              console.error("Related Fetch Error:", e);
+          // 🔥 FALLBACK: If specific search failed or returned 0 results -> Show Trending
+          if (foundVideos.length === 0) {
+              try {
+                  const res = await fetch(`${API_BASE_URL}/trending`);
+                  const data = await res.json();
+                  if (data.videos && data.videos.length > 0) {
+                      foundVideos = data.videos;
+                  }
+              } catch (e) { console.error("Trending fallback failed:", e); }
+          }
+
+          // 🔥 SAFETY NET: If everything fails, show something static or keep previous state
+          if (foundVideos.length > 0) {
+              setRelated(foundVideos);
           }
       };
 
-      fetchRecommendations();
+      fetchUpNext();
   }, [title]);
 
   useEffect(() => {
