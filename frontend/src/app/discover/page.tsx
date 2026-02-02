@@ -8,7 +8,7 @@ import UserMenu from '@/components/UserMenu';
 // Port Check: Ensure Backend is running on 8000
 const API_BASE_URL = "https://scanvidz-backend.onrender.com"; 
 
-// --- FALLBACK DATA (Agar Backend band ho to ye dikhega) ---
+// --- FALLBACK DATA ---
 const FALLBACK_HERO = [
   { 
     id: 1, 
@@ -37,8 +37,8 @@ export default function DiscoverPage() {
   const router = useRouter();
   
   // --- STATES ---
-  const [heroList, setHeroList] = useState<any[]>(FALLBACK_HERO); // List for Slider
-  const [currentSlide, setCurrentSlide] = useState(0); // Current Index
+  const [heroList, setHeroList] = useState<any[]>(FALLBACK_HERO); 
+  const [currentSlide, setCurrentSlide] = useState(0); 
   const [activeCategory, setActiveCategory] = useState<any | null>(null);
   const [moviesList, setMoviesList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -46,7 +46,7 @@ export default function DiscoverPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [isPlayingHero, setIsPlayingHero] = useState(true); 
-  const [player, setPlayer] = useState<any>(null); // Player Reference for Volume Control
+  const [player, setPlayer] = useState<any>(null);
 
   // --- 1. LOAD HERO DATA ---
   useEffect(() => {
@@ -59,21 +59,19 @@ export default function DiscoverPage() {
       })
       .catch(err => {
           console.log("Backend Offline - Using Fallback");
-          // Fallback already set in initial state
       });
   }, []);
 
-  // --- 2. 30 SECOND TIMER LOGIC (Auto Slide) ---
+  // --- 2. 60 SECOND TIMER LOGIC (Auto Slide) ---
   useEffect(() => {
-    if (heroList.length <= 1) return; // Don't slide if only 1 item
+    if (heroList.length <= 1) return; 
     
-    // Change slide every 30 seconds (matches video end time)
     const interval = setInterval(() => {
         nextSlide();
-    }, 30000); 
+    }, 60000); // 60 Seconds per slide
 
     return () => clearInterval(interval);
-  }, [heroList, currentSlide]); // Reset timer on slide change
+  }, [heroList, currentSlide]); 
 
   // --- SLIDER CONTROLS ---
   const nextSlide = () => {
@@ -140,7 +138,8 @@ export default function DiscoverPage() {
   };
 
   const handlePlay = (videoId: string) => {
-    router.push(`/watch?v=https://www.youtube.com/watch?v=${videoId}`);
+    const cleanId = videoId.replace("https://www.youtube.com/watch?v=", "");
+    router.push(`/watch?v=${cleanId}`);
   };
 
   const handleSearch = (e: React.FormEvent) => {
@@ -148,27 +147,54 @@ export default function DiscoverPage() {
     if(searchQuery.trim()) router.push(`/search?q=${encodeURIComponent(searchQuery)}`);
   };
 
-  // --- SMART PLAYER EVENTS ---
+  // --- SMART PLAYER EVENTS (FADE IN LOGIC) ---
   
-  // 1. Set Volume & Unmute when Ready
+  // 1. Ready Handler
   const onPlayerReady = (event: any) => {
       setPlayer(event.target);
-      // Attempt to set volume to 50% and unmute
-      // Note: Browsers block unmuted autoplay if user hasn't interacted with page
+      const p = event.target;
+
       try {
-          event.target.setVolume(50);
-          event.target.unMute();
-          event.target.playVideo();
+          // Step 1: Start Muted (Requirement for Autoplay)
+          p.mute(); 
+          p.playVideo();
+
+          // Step 2: Wait 2.5 Seconds, then Fade In Audio
+          setTimeout(() => {
+              try {
+                  p.unMute();        // Unmute
+                  p.setVolume(0);    // Start at 0 volume
+                  
+                  // Fade In Loop: Increase volume by 5 every 100ms
+                  let vol = 0;
+                  const fadeInterval = setInterval(() => {
+                      if (vol >= 100) {
+                          clearInterval(fadeInterval); // Stop when max volume
+                      } else {
+                          vol += 5;
+                          p.setVolume(vol);
+                      }
+                  }, 100); 
+
+              } catch(err) {
+                  // If browser blocks unmute (no interaction yet), keep playing muted
+                  console.log("Audio autoplay blocked, playing muted.");
+              }
+          }, 2500); // 2.5 Second Delay
+
       } catch(e) {}
   };
 
-  // 2. Skip to next video if error (Unavailable)
+  // 2. Error Handler
   const onPlayerError = (event: any) => {
-      console.log("Video Error (Skipping):", event.data);
-      nextSlide();
+      console.log("Video Error Code:", event.data);
+      // Wait 5 seconds on error before skipping
+      setTimeout(() => {
+          nextSlide();
+      }, 5000); 
   };
 
-  // 3. Skip to next video when ended (30s reached)
+  // 3. End Handler
   const onPlayerEnd = (event: any) => {
       nextSlide();
   };
@@ -182,11 +208,12 @@ export default function DiscoverPage() {
           controls: 0,
           rel: 0,
           showinfo: 0,
-          mute: 0,   // Try to play with sound
+          mute: 1,   // Start Muted (Code handles unmute)
           start: 0,
-          end: 30,   // Force cut after 30 seconds
+          end: 60,   
           modestbranding: 1,
-          origin: typeof window !== 'undefined' ? window.location.origin : undefined
+          origin: typeof window !== 'undefined' ? window.location.origin : undefined,
+          iv_load_policy: 3
       },
   };
 
@@ -282,7 +309,7 @@ export default function DiscoverPage() {
               <div className="animate-fade-in-up w-full max-w-[1600px] mx-auto">
                   
                   {/* HERO CAROUSEL SECTION */}
-                  <div className="relative w-full h-[55vh] md:h-[70vh] rounded-2xl md:rounded-3xl overflow-hidden mb-8 md:mb-12 group border border-white/5 shadow-2xl">
+                  <div className="relative w-full h-[55vh] md:h-[70vh] rounded-2xl md:rounded-3xl overflow-hidden mb-8 md:mb-12 group border border-white/5 shadow-2xl bg-black">
                       
                       {/* Background: Video Only Plays if Active */}
                       <div className="absolute inset-0 bg-black">
@@ -299,7 +326,7 @@ export default function DiscoverPage() {
                                             opts={heroOpts} 
                                             className="w-full h-full"
                                             onReady={onPlayerReady}
-                                            onError={onPlayerError}
+                                            onError={onPlayerError} 
                                             onEnd={onPlayerEnd}
                                           />
                                       </div>
@@ -315,7 +342,6 @@ export default function DiscoverPage() {
 
                       {/* Content Overlay */}
                       <div className="absolute bottom-0 left-0 p-6 md:p-12 w-full md:max-w-3xl z-30 pointer-events-none">
-                          {/* Animate text when slide changes */}
                           <div key={currentSlide} className="animate-in slide-in-from-left-5 duration-700 pointer-events-auto">
                               <span className="bg-red-600 text-[10px] md:text-xs font-bold px-2 py-1 md:px-3 rounded uppercase tracking-widest mb-2 md:mb-4 inline-block shadow-lg">
                                   #{currentSlide + 1} Trending Now
@@ -337,28 +363,14 @@ export default function DiscoverPage() {
                           </div>
                       </div>
 
-                      {/* Carousel Controls (Next/Prev) */}
-                      <button 
-                        onClick={prevSlide} 
-                        className="absolute left-4 top-1/2 -translate-y-1/2 z-40 bg-black/30 hover:bg-black/60 text-white p-3 rounded-full backdrop-blur border border-white/10 transition hover:scale-110 hidden md:block"
-                      >
-                          ❮
-                      </button>
-                      <button 
-                        onClick={nextSlide} 
-                        className="absolute right-4 top-1/2 -translate-y-1/2 z-40 bg-black/30 hover:bg-black/60 text-white p-3 rounded-full backdrop-blur border border-white/10 transition hover:scale-110 hidden md:block"
-                      >
-                          ❯
-                      </button>
+                      {/* Carousel Controls */}
+                      <button onClick={prevSlide} className="absolute left-4 top-1/2 -translate-y-1/2 z-40 bg-black/30 hover:bg-black/60 text-white p-3 rounded-full backdrop-blur border border-white/10 transition hover:scale-110 hidden md:block">❮</button>
+                      <button onClick={nextSlide} className="absolute right-4 top-1/2 -translate-y-1/2 z-40 bg-black/30 hover:bg-black/60 text-white p-3 rounded-full backdrop-blur border border-white/10 transition hover:scale-110 hidden md:block">❯</button>
 
-                      {/* Carousel Indicators (Dots) */}
+                      {/* Carousel Indicators */}
                       <div className="absolute bottom-6 right-6 z-40 flex gap-2">
                           {heroList.map((_, idx) => (
-                              <div 
-                                key={idx} 
-                                onClick={() => { setCurrentSlide(idx); setIsPlayingHero(true); }}
-                                className={`h-1.5 rounded-full cursor-pointer transition-all duration-300 ${idx === currentSlide ? 'w-8 bg-blue-500' : 'w-2 bg-gray-600 hover:bg-gray-400'}`}
-                              ></div>
+                              <div key={idx} onClick={() => { setCurrentSlide(idx); setIsPlayingHero(true); }} className={`h-1.5 rounded-full cursor-pointer transition-all duration-300 ${idx === currentSlide ? 'w-8 bg-blue-500' : 'w-2 bg-gray-600 hover:bg-gray-400'}`}></div>
                           ))}
                       </div>
                   </div>
