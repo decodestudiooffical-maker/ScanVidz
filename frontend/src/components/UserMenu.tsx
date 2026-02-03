@@ -6,8 +6,11 @@ import { useRouter } from 'next/navigation';
 
 export default function UserMenu() {
   const router = useRouter();
+  
+  // --- STATE MANAGEMENT ---
   const [user, setUser] = useState<any>(null);
   const [showMenu, setShowMenu] = useState(false);
+  const [showLang, setShowLang] = useState(false); // Toggle for Language Sub-menu
   const menuRef = useRef<HTMLDivElement>(null);
 
   // 1. Check if User is Logged In (and listen for changes)
@@ -15,7 +18,8 @@ export default function UserMenu() {
     const storedUser = localStorage.getItem('scanvidz_user') || sessionStorage.getItem('scanvidz_user');
     if (storedUser) {
       try {
-        setUser(JSON.parse(storedUser));
+        const parsedUser = JSON.parse(storedUser);
+        setUser(parsedUser);
       } catch (e) {
         console.error("User data parse error", e);
         setUser(null);
@@ -28,6 +32,7 @@ export default function UserMenu() {
   useEffect(() => {
     checkUser();
     // Listen for storage events (e.g. login from another tab or guest mode)
+    window.dispatchEvent(new Event('storage'));
     window.addEventListener('storage', checkUser);
     return () => window.removeEventListener('storage', checkUser);
   }, []);
@@ -37,6 +42,7 @@ export default function UserMenu() {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setShowMenu(false);
+        setShowLang(false); // Reset language menu on close
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -49,6 +55,7 @@ export default function UserMenu() {
     sessionStorage.removeItem('scanvidz_user');
     setUser(null);
     setShowMenu(false);
+    setShowLang(false);
     window.dispatchEvent(new Event('storage')); // Notify other components
     router.push('/'); 
     router.refresh(); // Force refresh to clear state
@@ -60,6 +67,7 @@ export default function UserMenu() {
       router.push('/login');
     } else {
       setShowMenu(!showMenu);
+      setShowLang(false); // Reset language state when toggling main menu
     }
   };
 
@@ -75,6 +83,9 @@ export default function UserMenu() {
       );
   }
 
+  // Helper to generate a consistent avatar URL if none exists
+  const avatarUrl = user.avatar || `https://ui-avatars.com/api/?name=${user.name}&background=random&color=fff&bold=true`;
+
   return (
     <div className="relative flex items-center gap-3" ref={menuRef}>
       
@@ -87,9 +98,9 @@ export default function UserMenu() {
       {/* Avatar Button */}
       <div 
         onClick={handleClick}
-        className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg cursor-pointer transition select-none ring-2 ring-transparent hover:ring-blue-500/50 relative overflow-hidden bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-lg`}
+        className="w-10 h-10 rounded-full cursor-pointer ring-2 ring-transparent hover:ring-blue-500/50 relative overflow-hidden shadow-lg transition transform active:scale-95"
       >
-        {user.name.charAt(0).toUpperCase()}
+        <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
       </div>
 
       {/* Dropdown Menu */}
@@ -99,9 +110,10 @@ export default function UserMenu() {
           {/* Header Section */}
           <div className="p-5 border-b border-gray-800 bg-gradient-to-r from-blue-900/20 to-purple-900/20">
              <div className="flex items-center gap-4 mb-3">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center font-bold text-xl text-white shadow-inner">
-                    {user.name.charAt(0).toUpperCase()}
-                </div>
+                <img 
+                    src={avatarUrl} 
+                    className="w-12 h-12 rounded-full border-2 border-white/10 shadow-inner object-cover" 
+                />
                 <div className="overflow-hidden">
                     <p className="font-black text-white truncate text-lg">{user.name}</p>
                     <span className="inline-block bg-blue-500/20 text-blue-400 text-[10px] px-2 py-0.5 rounded font-bold tracking-wider uppercase border border-blue-500/30">Pro Account</span>
@@ -112,6 +124,8 @@ export default function UserMenu() {
 
           {/* Menu Items */}
           <div className="p-2 space-y-1">
+             
+             {/* Profile Settings Link (To /profile) */}
              <button 
                 onClick={() => { setShowMenu(false); router.push('/profile'); }} 
                 className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-white/5 hover:text-white rounded-xl transition flex items-center gap-4 group"
@@ -120,24 +134,44 @@ export default function UserMenu() {
                 <span className="font-medium">Profile Settings</span>
              </button>
 
-             <button 
-                onClick={() => alert("Language Settings coming soon!")} 
-                className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-white/5 hover:text-white rounded-xl transition flex items-center gap-4 group"
-             >
-                <span className="p-2 bg-gray-800 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition text-gray-400">🌐</span> 
-                <span className="font-medium">Language: English</span>
-             </button>
-             
-             <button 
-                onClick={() => { setShowMenu(false); router.push('/history'); }} 
-                className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-white/5 hover:text-white rounded-xl transition flex items-center gap-4 group"
-             >
-                <span className="p-2 bg-gray-800 rounded-lg group-hover:bg-green-600 group-hover:text-white transition text-gray-400">📜</span> 
-                <span className="font-medium">Watch History</span>
-             </button>
+             {/* Language Dropdown Logic */}
+             <div className="relative">
+                 <button 
+                    onClick={() => setShowLang(!showLang)} 
+                    className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-white/5 hover:text-white rounded-xl transition flex items-center justify-between gap-4 group"
+                 >
+                    <div className="flex items-center gap-4">
+                        <span className="p-2 bg-gray-800 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition text-gray-400">🌐</span> 
+                        <span className="font-medium">Language</span>
+                    </div>
+                    {/* Current Lang Badge */}
+                    <span className="text-xs text-gray-500 bg-black/30 px-2 py-1 rounded">English</span>
+                 </button>
+                 
+                 {/* Sub-menu for Languages */}
+                 {showLang && (
+                     <div className="bg-[#0a0a0a] rounded-xl mx-2 my-1 p-1 border border-gray-800 animate-in slide-in-from-top-1">
+                         {['English', 'Hindi (हिंदी)', 'Spanish', 'French'].map(lang => (
+                             <div 
+                                key={lang} 
+                                onClick={() => { 
+                                    alert(`Language set to ${lang}`); 
+                                    setShowLang(false); 
+                                }} 
+                                className="px-3 py-2 text-xs text-gray-400 hover:bg-white/10 hover:text-white rounded-lg cursor-pointer transition flex items-center justify-between"
+                             >
+                                 {lang}
+                                 {lang === 'English' && <span className="text-blue-500">✓</span>}
+                             </div>
+                         ))}
+                     </div>
+                 )}
+             </div>
 
+             {/* Divider */}
              <div className="h-px bg-gray-800 my-2 mx-2"></div>
 
+             {/* Logout Button */}
              <button 
                 onClick={handleLogout}
                 className="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-red-500/10 rounded-xl transition flex items-center gap-4 group"
