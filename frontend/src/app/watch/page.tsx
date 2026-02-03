@@ -90,6 +90,9 @@ function WatchContent() {
   const [showSettings, setShowSettings] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isFullscreenMode, setIsFullscreenMode] = useState(false);
+  
+  // 🔥 NEW: Zoom State for "Force Fit"
+  const [isZoomed, setIsZoomed] = useState(false);
 
   // Data States
   const [meta, setMeta] = useState<VideoMeta>({ likes: 0, views: "0", subs: "0", is_liked: false });
@@ -186,13 +189,14 @@ function WatchContent() {
       }
   };
 
-  // 🔥 UPDATED: AUTO-ROTATE LANDSCAPE LOGIC
+  // 🔥 UPDATED: AUTO-ROTATE LANDSCAPE & SCALE LOGIC
   const toggleFullscreen = async () => {
       if (containerRef.current) {
           if (!document.fullscreenElement) {
               try {
                   await containerRef.current.requestFullscreen();
                   setIsFullscreenMode(true);
+                  setIsZoomed(true); // Auto-Zoom on Mobile Fullscreen
                   // Try locking orientation to landscape on mobile
                   if (screen.orientation && 'lock' in screen.orientation) {
                       // @ts-ignore
@@ -203,6 +207,7 @@ function WatchContent() {
               try {
                   await document.exitFullscreen();
                   setIsFullscreenMode(false);
+                  setIsZoomed(false); // Reset Zoom on Exit
                   if (screen.orientation && 'unlock' in screen.orientation) {
                       // @ts-ignore
                       screen.orientation.unlock();
@@ -210,6 +215,12 @@ function WatchContent() {
               } catch (e) { console.error("Exit Fullscreen Error:", e); }
           }
       }
+  };
+
+  const toggleZoom = () => {
+      setIsZoomed(!isZoomed);
+      setToastMsg(!isZoomed ? "Aspect Ratio: Fill" : "Aspect Ratio: Fit");
+      setTimeout(() => setToastMsg(null), 1500);
   };
 
   const changeSpeed = (rate: number) => {
@@ -253,19 +264,19 @@ function WatchContent() {
       setTimeout(() => setToastMsg(null), 1000);
   };
 
-  // 5. YOUTUBE API INTEGRATION
+  // 5. YOUTUBE API INTEGRATION (STRICT)
   const opts: YouTubeProps['opts'] = {
-      height: '1080',
-      width: '1920',
+      height: '100%',
+      width: '100%',
       playerVars: {
           autoplay: 1,
-          controls: 0,
-          disablekb: 1,
-          fs: 0,
+          controls: 0,     // Disable Native Controls
+          disablekb: 1,    // Disable Keyboard
+          fs: 0,           // Disable Fullscreen Button
           modestbranding: 1,
-          rel: 0,
+          rel: 0,          // Limit Related Videos
           showinfo: 0,
-          iv_load_policy: 3,
+          iv_load_policy: 3, // Hide Annotations
           playsinline: 1,
           origin: typeof window !== 'undefined' ? window.location.origin : 'https://scanvidz.vercel.app',
       },
@@ -510,15 +521,18 @@ function WatchContent() {
 
        <div className="flex flex-col lg:flex-row max-w-[1800px] mx-auto w-full">
            
-           {/* 🔥 FIXED PADDING: Removed p-4 for Mobile, Added md:p-4 for Desktop */}
            <div className="flex-1 p-0 md:p-4 lg:p-6 lg:pr-0 overflow-y-auto">
               <div 
                   ref={containerRef} 
-                  /* 🔥 FIXED ROUNDING: No rounded corners on mobile (Edge-to-Edge) */
-                  className={`relative w-full aspect-video bg-black group rounded-none md:rounded-xl overflow-hidden shadow-2xl ${isFullscreenMode ? 'fixed inset-0 z-[100] rounded-none h-screen w-screen' : ''}`}
+                  /* 🔥 FIXED: Added 'flex items-center justify-center' to center video when zoomed */
+                  className={`relative w-full aspect-video bg-black group rounded-none md:rounded-xl overflow-hidden shadow-2xl 
+                  ${isFullscreenMode ? 'fixed inset-0 z-[100] rounded-none h-screen w-screen flex items-center justify-center' : ''}`}
                   onMouseMove={handleMouseMove}
                   onMouseLeave={() => isPlaying && setShowControls(false)}
               >
+                  {/* 🔥 INTERACTION SHIELD (This blocks all clicks to underlying YouTube iframe) */}
+                  <div className="absolute inset-0 z-0 bg-transparent"></div>
+
                   {isVideoError || !videoId ? (
                       <div className="absolute inset-0 bg-black flex flex-col items-center justify-center p-8 text-center z-50">
                           <div className="w-20 h-20 bg-gray-800 rounded-full flex items-center justify-center mb-6 text-yellow-500">
@@ -535,15 +549,19 @@ function WatchContent() {
                           </button>
                       </div>
                   ) : (
-                      <YouTube 
-                          videoId={videoId} 
-                          opts={opts} 
-                          onReady={onPlayerReady} 
-                          onStateChange={onPlayerStateChange}
-                          onError={onPlayerError}
-                          className="w-full h-full pointer-events-none"
-                          iframeClassName="w-full h-full"
-                      />
+                      /* 🔥 SCALING WRAPPER: Handles the Zoom/Fill Logic */
+                      <div className={`w-full h-full transition-transform duration-300 ${isZoomed && isFullscreenMode ? 'scale-[1.35]' : 'scale-100'}`}>
+                          <YouTube 
+                              videoId={videoId} 
+                              opts={opts} 
+                              onReady={onPlayerReady} 
+                              onStateChange={onPlayerStateChange}
+                              onError={onPlayerError}
+                              /* 🔥 POINTER EVENTS NONE: Crucial for disabling YouTube clicks */
+                              className="w-full h-full pointer-events-none"
+                              iframeClassName="w-full h-full"
+                          />
+                      </div>
                   )}
 
                   {!isVideoError && videoId && (
@@ -595,6 +613,20 @@ function WatchContent() {
                                           </div>
                                       </div>
                                   )}
+                                  
+                                  {/* 🔥 NEW: ZOOM / FIT BUTTON (Only visible in Fullscreen) */}
+                                  {isFullscreenMode && (
+                                      <button onClick={toggleZoom} className="text-white hover:scale-110 transition">
+                                          {isZoomed ? (
+                                              /* Zoom Out Icon */
+                                              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                                          ) : (
+                                              /* Zoom In Icon */
+                                              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3" /></svg>
+                                          )}
+                                      </button>
+                                  )}
+
                                   <button onClick={toggleFullscreen} className="text-white hover:scale-110 transition">
                                       {isFullscreenMode ? <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>}
                                   </button>
