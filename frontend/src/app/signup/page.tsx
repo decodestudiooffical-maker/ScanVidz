@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
+// Global API Base URL
 const API_BASE_URL = "https://scanvidz-backend.onrender.com";
 
 export default function SignupPage() {
@@ -18,9 +19,21 @@ export default function SignupPage() {
   // Feature States
   const [loading, setLoading] = useState(false);
   const [shakeError, setShakeError] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState("https://ui-avatars.com/api/?background=random&name=New+User&color=fff");
   const [passwordStrength, setPasswordStrength] = useState(0); // 0 to 4
 
-  // --- PASSWORD STRENGTH METER ---
+  // --- 1. AUTO AVATAR GENERATOR ---
+  useEffect(() => {
+      // Debounce avatar update
+      const handler = setTimeout(() => {
+          if (name.length > 2) {
+              setAvatarUrl(`https://ui-avatars.com/api/?background=7C3AED&color=fff&name=${name}&size=128&bold=true`);
+          }
+      }, 500);
+      return () => clearTimeout(handler);
+  }, [name]);
+
+  // --- 2. PASSWORD STRENGTH METER ---
   useEffect(() => {
       let score = 0;
       if (password.length > 5) score++;
@@ -31,7 +44,7 @@ export default function SignupPage() {
       setPasswordStrength(score); // Max 5
   }, [password]);
 
-  // --- SIGNUP LOGIC ---
+  // --- 3. SIGNUP LOGIC ---
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -69,10 +82,11 @@ export default function SignupPage() {
         const data = await res.json();
 
         if (res.ok) {
-            // Success Animation or Toast could go here
+            // Success Logic
             alert("✅ Account Created Successfully! Redirecting to Login...");
             router.push('/login'); 
         } else {
+            // Error Logic
             setShakeError(true);
             alert("❌ Signup Error: " + (data.detail || "User already exists or invalid data"));
         }
@@ -102,8 +116,13 @@ export default function SignupPage() {
       {/* Main Glassmorphism Card */}
       <div className={`bg-[#121212]/80 backdrop-blur-xl border ${shakeError ? 'border-red-500/50 animate-shake' : 'border-gray-800'} w-[90%] max-w-md p-6 sm:p-8 rounded-3xl shadow-2xl z-10 relative transition-all duration-300`}>
         
+        {/* Dynamic Avatar */}
+        <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 shadow-2xl rounded-full border-4 border-[#050505]">
+            <img src={avatarUrl} className="w-20 h-20 rounded-full bg-gray-800 object-cover" alt="User Avatar" />
+        </div>
+
         {/* Header */}
-        <div className="text-center mb-6">
+        <div className="text-center mt-12 mb-6">
             <h1 className="text-3xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 mb-1">
                 Join ScanVidz
             </h1>
@@ -199,16 +218,20 @@ export default function SignupPage() {
             <div className="h-px bg-gray-800 flex-1"></div>
         </div>
 
-        {/* Social Buttons */}
+        {/* Social Buttons (FIXED LOGOS) */}
         <div className="grid grid-cols-3 gap-3">
-            <button className="bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-gray-700 hover:border-white/30 py-3 rounded-xl transition flex items-center justify-center group">
-                <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" className="w-5 h-5 group-hover:scale-110 transition" alt="Google" />
+            <button className="bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-gray-700 hover:border-white/30 py-3 rounded-xl transition flex items-center justify-center group relative overflow-hidden">
+                {/* Fixed Google Logo Link */}
+                <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-5 h-5 group-hover:scale-110 transition z-10" alt="Google" />
+                <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition"></div>
             </button>
-            <button className="bg-[#1877F2]/10 hover:bg-[#1877F2]/20 border border-[#1877F2]/30 hover:border-[#1877F2] py-3 rounded-xl transition flex items-center justify-center group">
-                <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/2021_Facebook_icon.svg/2048px-2021_Facebook_icon.svg.png" className="w-5 h-5 group-hover:scale-110 transition" alt="Facebook" />
+            <button className="bg-[#1877F2]/10 hover:bg-[#1877F2]/20 border border-[#1877F2]/30 hover:border-[#1877F2] py-3 rounded-xl transition flex items-center justify-center group relative overflow-hidden">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/b/b8/2021_Facebook_icon.svg" className="w-5 h-5 group-hover:scale-110 transition z-10" alt="Facebook" />
+                <div className="absolute inset-0 bg-blue-500/10 opacity-0 group-hover:opacity-100 transition"></div>
             </button>
-            <button className="bg-[#FFFC00]/10 hover:bg-[#FFFC00]/20 border border-[#FFFC00]/30 hover:border-[#FFFC00] py-3 rounded-xl transition flex items-center justify-center group">
-                <img src="https://upload.wikimedia.org/wikipedia/en/thumb/c/c4/Snapchat_logo.svg/1200px-Snapchat_logo.svg.png" className="w-5 h-5 group-hover:scale-100 transition" alt="Snapchat" />
+            <button className="bg-[#FFFC00]/10 hover:bg-[#FFFC00]/20 border border-[#FFFC00]/30 hover:border-[#FFFC00] py-3 rounded-xl transition flex items-center justify-center group relative overflow-hidden">
+                <img src="https://www.svgrepo.com/show/448251/snapchat.svg" className="w-5 h-5 group-hover:scale-100 transition z-10" alt="Snapchat" />
+                <div className="absolute inset-0 bg-yellow-400/10 opacity-0 group-hover:opacity-100 transition"></div>
             </button>
         </div>
 
@@ -218,6 +241,13 @@ export default function SignupPage() {
             <Link href="/login" className="text-purple-400 font-bold hover:text-purple-300 hover:underline transition">
                 Login here
             </Link>
+        </div>
+
+        {/* Terms Footer (New Addition for Robustness) */}
+        <div className="mt-6 text-center border-t border-gray-800/50 pt-4">
+            <p className="text-[10px] text-gray-600">
+                By signing up, you agree to our <a href="#" className="hover:text-gray-400">Terms of Service</a> and <a href="#" className="hover:text-gray-400">Privacy Policy</a>.
+            </p>
         </div>
 
       </div>
