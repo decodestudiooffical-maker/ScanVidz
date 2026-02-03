@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -18,22 +18,9 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [magicLoading, setMagicLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [shakeError, setShakeError] = useState(false); // For Shake Animation
-  const [avatarUrl, setAvatarUrl] = useState("https://ui-avatars.com/api/?background=random&name=User&color=fff");
+  const [shakeError, setShakeError] = useState(false);
 
-  // --- 1. AUTO AVATAR GENERATOR ---
-  useEffect(() => {
-      const handler = setTimeout(() => {
-          if (input.length > 2) {
-              // Extract name from email (e.g., billa from billa@gmail.com)
-              const namePart = input.includes('@') ? input.split('@')[0] : input;
-              setAvatarUrl(`https://ui-avatars.com/api/?background=0D8ABC&color=fff&name=${namePart}&size=128&bold=true`);
-          }
-      }, 500); // Debounce to avoid flickering
-      return () => clearTimeout(handler);
-  }, [input]);
-
-  // --- 2. LOGIN LOGIC ---
+  // --- LOGIN LOGIC ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -63,10 +50,11 @@ export default function LoginPage() {
         const data = await res.json();
 
         if (res.ok) {
-            // ✅ Feature 12: Smart Remember Me
+            // ✅ Smart Remember Me
             const storage = rememberMe ? localStorage : sessionStorage;
             storage.setItem('scanvidz_user', JSON.stringify(data.user));
-            
+            // Dispatch a storage event to update UserMenu instantly
+            window.dispatchEvent(new Event('storage'));
             router.push('/'); // Go to Home
         } else {
             setShakeError(true); // Trigger Shake Animation
@@ -81,7 +69,7 @@ export default function LoginPage() {
     }
   };
 
-  // --- 3. MAGIC LINK LOGIC (Feature 14 - Improved) ---
+  // --- MAGIC LINK LOGIC (Feature 14 - Improved) ---
   const handleMagicLink = async () => {
       if (!input || !input.includes('@')) {
           alert("Please enter a valid Email first to receive the Magic Link!");
@@ -115,7 +103,7 @@ export default function LoginPage() {
       }
   };
 
-  // --- 4. GUEST MODE LOGIC (Feature 17) ---
+  // --- GUEST MODE LOGIC (Feature 17) ---
   const handleGuestLogin = () => {
       const guestUser = {
           id: "guest_" + Date.now(),
@@ -124,6 +112,8 @@ export default function LoginPage() {
           isGuest: true
       };
       sessionStorage.setItem('scanvidz_user', JSON.stringify(guestUser));
+      // Dispatch a storage event to update UserMenu instantly
+      window.dispatchEvent(new Event('storage'));
       router.push('/');
   };
 
@@ -135,15 +125,10 @@ export default function LoginPage() {
       <div className="absolute bottom-[-20%] right-[-20%] w-[50%] h-[50%] bg-purple-600/10 rounded-full blur-[150px] animate-pulse delay-1000"></div>
 
       {/* Main Glassmorphism Card */}
-      <div className={`w-full max-w-md p-8 rounded-3xl shadow-2xl z-10 relative transition-all duration-300 ${shakeError ? 'animate-shake border-red-500/50' : 'border-gray-800'} border bg-[#121212]/80 backdrop-blur-xl`}>
+      <div className={`w-[90%] max-w-md p-6 sm:p-8 rounded-3xl shadow-2xl z-10 relative transition-all duration-300 ${shakeError ? 'animate-shake border-red-500/50' : 'border-gray-800'} border bg-[#121212]/80 backdrop-blur-xl`}>
         
-        {/* Dynamic Avatar */}
-        <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 shadow-2xl rounded-full border-4 border-[#050505]">
-            <img src={avatarUrl} className="w-24 h-24 rounded-full bg-gray-800 object-cover" alt="User Avatar" />
-        </div>
-
         {/* Header */}
-        <div className="text-center mt-10 mb-8">
+        <div className="text-center mb-8">
             <h1 className="text-3xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 mb-1">
                 ScanVidz ID
             </h1>

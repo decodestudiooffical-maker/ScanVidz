@@ -138,7 +138,10 @@ export default function Home() {
             <h1 onClick={() => router.push('/')} className="text-xl font-bold cursor-pointer hidden md:block">ScanVidz</h1>
          </div>
          
-         <UserMenu />
+         {/* 🔥 User Menu Integrated Here */}
+         <div className="flex items-center gap-3">
+             <UserMenu /> 
+         </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden relative">

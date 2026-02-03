@@ -18,20 +18,9 @@ export default function SignupPage() {
   // Feature States
   const [loading, setLoading] = useState(false);
   const [shakeError, setShakeError] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState("https://ui-avatars.com/api/?background=random&name=New+User&color=fff");
   const [passwordStrength, setPasswordStrength] = useState(0); // 0 to 4
 
-  // --- 1. AUTO AVATAR GENERATOR ---
-  useEffect(() => {
-      const handler = setTimeout(() => {
-          if (name.length > 2) {
-              setAvatarUrl(`https://ui-avatars.com/api/?background=7C3AED&color=fff&name=${name}&size=128&bold=true`);
-          }
-      }, 500);
-      return () => clearTimeout(handler);
-  }, [name]);
-
-  // --- 2. PASSWORD STRENGTH METER ---
+  // --- PASSWORD STRENGTH METER ---
   useEffect(() => {
       let score = 0;
       if (password.length > 5) score++;
@@ -42,7 +31,7 @@ export default function SignupPage() {
       setPasswordStrength(score); // Max 5
   }, [password]);
 
-  // --- 3. SIGNUP LOGIC ---
+  // --- SIGNUP LOGIC ---
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -111,15 +100,10 @@ export default function SignupPage() {
       <div className="absolute bottom-[-20%] left-[-20%] w-[50%] h-[50%] bg-blue-600/10 rounded-full blur-[150px] animate-pulse delay-1000"></div>
 
       {/* Main Glassmorphism Card */}
-      <div className={`bg-[#121212]/80 backdrop-blur-xl border ${shakeError ? 'border-red-500/50 animate-shake' : 'border-gray-800'} w-full max-w-md p-8 rounded-3xl shadow-2xl z-10 relative transition-all duration-300`}>
+      <div className={`bg-[#121212]/80 backdrop-blur-xl border ${shakeError ? 'border-red-500/50 animate-shake' : 'border-gray-800'} w-[90%] max-w-md p-6 sm:p-8 rounded-3xl shadow-2xl z-10 relative transition-all duration-300`}>
         
-        {/* Dynamic Avatar */}
-        <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 shadow-2xl rounded-full border-4 border-[#050505]">
-            <img src={avatarUrl} className="w-24 h-24 rounded-full bg-gray-800 object-cover" alt="User Avatar" />
-        </div>
-
         {/* Header */}
-        <div className="text-center mt-10 mb-6">
+        <div className="text-center mb-6">
             <h1 className="text-3xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 mb-1">
                 Join ScanVidz
             </h1>
@@ -182,7 +166,7 @@ export default function SignupPage() {
                     </button>
                 </div>
                 
-                {/* Feature 8: Password Strength Meter */}
+                {/* Password Strength Meter */}
                 {password.length > 0 && (
                     <div className="mt-2 flex items-center gap-2">
                         <div className="flex-1 h-1 bg-gray-800 rounded-full overflow-hidden">
@@ -224,7 +208,7 @@ export default function SignupPage() {
                 <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/2021_Facebook_icon.svg/2048px-2021_Facebook_icon.svg.png" className="w-5 h-5 group-hover:scale-110 transition" alt="Facebook" />
             </button>
             <button className="bg-[#FFFC00]/10 hover:bg-[#FFFC00]/20 border border-[#FFFC00]/30 hover:border-[#FFFC00] py-3 rounded-xl transition flex items-center justify-center group">
-                <img src="https://upload.wikimedia.org/wikipedia/en/thumb/c/c4/Snapchat_logo.svg/1200px-Snapchat_logo.svg.png" className="w-5 h-5 group-hover:scale-110 transition" alt="Snapchat" />
+                <img src="https://upload.wikimedia.org/wikipedia/en/thumb/c/c4/Snapchat_logo.svg/1200px-Snapchat_logo.svg.png" className="w-5 h-5 group-hover:scale-100 transition" alt="Snapchat" />
             </button>
         </div>
 
