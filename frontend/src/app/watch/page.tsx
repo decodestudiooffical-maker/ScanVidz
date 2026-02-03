@@ -186,14 +186,28 @@ function WatchContent() {
       }
   };
 
-  const toggleFullscreen = () => {
+  // 🔥 UPDATED: AUTO-ROTATE LANDSCAPE LOGIC
+  const toggleFullscreen = async () => {
       if (containerRef.current) {
           if (!document.fullscreenElement) {
-              containerRef.current.requestFullscreen();
-              setIsFullscreenMode(true);
+              try {
+                  await containerRef.current.requestFullscreen();
+                  setIsFullscreenMode(true);
+                  // Try locking orientation to landscape on mobile
+                  if (screen.orientation && 'lock' in screen.orientation) {
+                      // @ts-ignore
+                      await screen.orientation.lock('landscape').catch((e) => console.log("Orientation lock not supported or blocked", e));
+                  }
+              } catch (e) { console.error("Fullscreen Error:", e); }
           } else {
-              document.exitFullscreen();
-              setIsFullscreenMode(false);
+              try {
+                  await document.exitFullscreen();
+                  setIsFullscreenMode(false);
+                  if (screen.orientation && 'unlock' in screen.orientation) {
+                      // @ts-ignore
+                      screen.orientation.unlock();
+                  }
+              } catch (e) { console.error("Exit Fullscreen Error:", e); }
           }
       }
   };
@@ -341,41 +355,27 @@ function WatchContent() {
       }
   }, [videoId, user]);
 
-  // 🔥 FINAL FIX: GUARANTEED RECOMMENDATIONS
+  // 🔥 GUARANTEED RECOMMENDATIONS
   useEffect(() => {
-      // Logic: If title exists, search for it. If result is empty or error, fallback to Trending.
       const fetchUpNext = async () => {
           let foundVideos = [];
-          
           if (title && title !== 'Video Player') {
               try {
-                  // Try to find specific related videos
-                  const cleanTitle = title.replace(/[^a-zA-Z0-9 ]/g, "").split(' ').slice(0, 3).join(' '); // Search first 3 words
+                  const cleanTitle = title.replace(/[^a-zA-Z0-9 ]/g, "").split(' ').slice(0, 3).join(' '); 
                   const res = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(cleanTitle)}&limit=15`);
                   const data = await res.json();
-                  if (data.results && data.results.length > 0) {
-                      foundVideos = data.results;
-                  }
+                  if (data.results && data.results.length > 0) foundVideos = data.results;
               } catch (e) { console.error(e); }
           }
-
-          // 🔥 FALLBACK: If specific search failed or returned 0 results -> Show Trending
           if (foundVideos.length === 0) {
               try {
                   const res = await fetch(`${API_BASE_URL}/trending`);
                   const data = await res.json();
-                  if (data.videos && data.videos.length > 0) {
-                      foundVideos = data.videos;
-                  }
+                  if (data.videos && data.videos.length > 0) foundVideos = data.videos;
               } catch (e) { console.error("Trending fallback failed:", e); }
           }
-
-          // 🔥 SAFETY NET: If everything fails, show something static or keep previous state
-          if (foundVideos.length > 0) {
-              setRelated(foundVideos);
-          }
+          if (foundVideos.length > 0) setRelated(foundVideos);
       };
-
       fetchUpNext();
   }, [title]);
 
@@ -510,10 +510,12 @@ function WatchContent() {
 
        <div className="flex flex-col lg:flex-row max-w-[1800px] mx-auto w-full">
            
-           <div className="flex-1 p-4 lg:p-6 lg:pr-0 overflow-y-auto">
+           {/* 🔥 FIXED PADDING: Removed p-4 for Mobile, Added md:p-4 for Desktop */}
+           <div className="flex-1 p-0 md:p-4 lg:p-6 lg:pr-0 overflow-y-auto">
               <div 
                   ref={containerRef} 
-                  className={`relative w-full aspect-video bg-black group rounded-xl overflow-hidden shadow-2xl ${isFullscreenMode ? 'fixed inset-0 z-[100] rounded-none h-screen w-screen' : ''}`}
+                  /* 🔥 FIXED ROUNDING: No rounded corners on mobile (Edge-to-Edge) */
+                  className={`relative w-full aspect-video bg-black group rounded-none md:rounded-xl overflow-hidden shadow-2xl ${isFullscreenMode ? 'fixed inset-0 z-[100] rounded-none h-screen w-screen' : ''}`}
                   onMouseMove={handleMouseMove}
                   onMouseLeave={() => isPlaying && setShowControls(false)}
               >
@@ -614,7 +616,7 @@ function WatchContent() {
                   )}
               </div>
 
-              <div className="mt-4">
+              <div className="mt-4 px-4 md:px-0">
                   <div className="flex justify-between items-start gap-4">
                       <h1 className="text-xl md:text-2xl font-bold line-clamp-2 leading-snug flex-1">{title}</h1>
                   </div>
